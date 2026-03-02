@@ -8,10 +8,10 @@ import { FilePreviewModal } from '@/components/FilePreviewModal';
 import { UploadZone, UploadZoneHandle } from '@/components/UploadZone';
 import { Modal } from '@/components/Modal';
 import { ShareModal } from '@/components/ShareModal';
-import { Upload, Loader2, FolderPlus, RefreshCw, PanelLeftClose, PanelLeft, X, CheckCircle, AlertCircle, FileIcon } from 'lucide-react';
+import { Upload, Loader2, FolderPlus, RefreshCw, PanelLeftClose, PanelLeft, X, CheckCircle, AlertCircle, FileIcon, LayoutGrid, List } from 'lucide-react';
 import api from '@/lib/api';
 import { useAuth } from '@/lib/context/AuthContext';
-import { cn, formatBytes } from '@/lib/utils';
+import { cn, formatBytes, generateVideoThumbnail } from '@/lib/utils';
 
 export default function DashboardPage() {
   const { refreshUser } = useAuth();
@@ -27,6 +27,7 @@ export default function DashboardPage() {
   const [shareModal, setShareModal] = useState<{ id: string; name: string } | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const uploadZoneRef = useRef<UploadZoneHandle>(null);
 
   // Mobile upload state
@@ -35,15 +36,30 @@ export default function DashboardPage() {
   const [mobileUploading, setMobileUploading] = useState(false);
   const mobileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleMobileFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleMobileFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const selected = Array.from(e.target.files || []);
     if (!selected.length) return;
-    setMobileFiles(selected.map((f) => ({
+    // Build initial list with image previews immediately
+    const initial: MobileFile[] = selected.map((f) => ({
       file: f,
       status: 'pending' as const,
       preview: f.type.startsWith('image/') ? URL.createObjectURL(f) : undefined,
-    })));
+    }));
+    setMobileFiles(initial);
     e.target.value = '';
+    // Generate video thumbnails async after showing the sheet
+    for (let i = 0; i < selected.length; i++) {
+      const f = selected[i];
+      if (!f.type.startsWith('video/')) continue;
+      try {
+        const blobUrl = URL.createObjectURL(f);
+        const thumb = await generateVideoThumbnail(blobUrl);
+        URL.revokeObjectURL(blobUrl);
+        setMobileFiles((prev) => prev.map((m, idx) => idx === i ? { ...m, preview: thumb } : m));
+      } catch {
+        // fallback to icon — no change needed
+      }
+    }
   };
 
   const handleMobileUpload = async () => {
@@ -216,7 +232,34 @@ export default function DashboardPage() {
           <h2 className="flex-1 text-base sm:text-lg font-semibold text-gray-100 truncate min-w-0">
             {currentFolderName}
           </h2>
-          <div className="flex items-center gap-2 flex-shrink-0">
+          <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0">
+            {/* View mode toggle */}
+            <div className="flex items-center rounded-lg border border-gray-700 overflow-hidden">
+              <button
+                onClick={() => setViewMode('grid')}
+                className={cn(
+                  'p-1.5 transition-colors',
+                  viewMode === 'grid'
+                    ? 'bg-gray-700 text-gray-100'
+                    : 'text-gray-500 hover:text-gray-300 hover:bg-gray-800'
+                )}
+                title="Grid view"
+              >
+                <LayoutGrid className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => setViewMode('list')}
+                className={cn(
+                  'p-1.5 transition-colors',
+                  viewMode === 'list'
+                    ? 'bg-gray-700 text-gray-100'
+                    : 'text-gray-500 hover:text-gray-300 hover:bg-gray-800'
+                )}
+                title="List view"
+              >
+                <List className="w-4 h-4" />
+              </button>
+            </div>
             <button
               onClick={() => refetchFiles()}
               className="p-2 rounded-lg text-gray-500 hover:text-gray-300 hover:bg-gray-800 transition-colors"
@@ -351,11 +394,16 @@ export default function DashboardPage() {
               </button>
             </div>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-4">
+            <div className={cn(
+              viewMode === 'grid'
+                ? 'grid grid-cols-2 xs:grid-cols-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-1 sm:gap-1.5'
+                : 'flex flex-col divide-y divide-gray-800 border border-gray-800 rounded-xl overflow-hidden'
+            )}>
               {filesData?.map((file: any, idx: number) => (
                 <FileCard
                   key={file.id}
                   file={file}
+                  listView={viewMode === 'list'}
                   onRename={(id, name) => { setRenameModal({ id, name, type: 'file' }); setNewName(name); }}
                   onDelete={(id) => setDeleteConfirm({ id, type: 'file' })}
                   onShare={(id) => setShareModal({ id, name: file.file_name })}

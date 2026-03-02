@@ -1,10 +1,11 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { FileText, Image, Video, Archive, File, Download, Pencil, Trash2, Share2, MoreVertical, Star } from 'lucide-react';
 import { formatBytes, formatDate, getMimeIcon, truncateFilename } from '@/lib/utils';
 import { cn } from '@/lib/utils';
 import api from '@/lib/api';
+import { getCachedUrl, setCachedUrl } from '@/lib/fileUrlCache';
 
 interface FileItem {
   id: string;
@@ -17,6 +18,7 @@ interface FileItem {
 
 interface FileCardProps {
   file: FileItem;
+  listView?: boolean;
   onRename: (id: string, currentName: string) => void;
   onDelete: (id: string) => void;
   onShare: (id: string) => void;
@@ -34,22 +36,36 @@ const iconMap: Record<string, React.ElementType> = {
   file: File,
 };
 
-export function FileCard({ file, onRename, onDelete, onShare, onRefresh, onPreview }: FileCardProps) {
+// (URL caching is handled via shared fileUrlCache module)
+
+export function FileCard({ file, listView = false, onRename, onDelete, onShare, onRefresh, onPreview }: FileCardProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [starring, setStarring] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
 
   const isImage = file.mime_type.startsWith('image/');
+  const isVideo = file.mime_type.startsWith('video/');
 
   useEffect(() => {
-    if (!isImage) return;
+    if (!isImage && !isVideo) return;
+    const cached = getCachedUrl(file.id);
+    if (cached) {
+      setPreviewUrl(cached);
+      return;
+    }
     let cancelled = false;
     api.get(`/files/${file.id}/download`)
-      .then((res) => { if (!cancelled) setPreviewUrl(res.data.url); })
+      .then((res) => {
+        if (!cancelled) {
+          setCachedUrl(file.id, res.data.url);
+          setPreviewUrl(res.data.url);
+        }
+      })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, [file.id, isImage]);
+  }, [file.id, isImage, isVideo]);
 
   const IconComp = iconMap[getMimeIcon(file.mime_type)] || File;
 
@@ -86,101 +102,246 @@ export function FileCard({ file, onRename, onDelete, onShare, onRefresh, onPrevi
     }
   };
 
+  const thumbnailEl = (
+    <div className={cn(
+      'flex-shrink-0 rounded-lg overflow-hidden border border-brand-800/50 relative',
+      listView ? 'w-9 h-9' : 'w-10 h-10'
+    )}>
+      {isImage && previewUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={previewUrl}
+          alt={file.file_name}
+          className="w-full h-full object-cover"
+          onError={() => setPreviewUrl(null)}
+        />
+      ) : isVideo && previewUrl ? (
+        <>
+          <video
+            ref={videoRef}
+            src={previewUrl}
+            muted
+            playsInline
+            preload="metadata"
+            className="w-full h-full object-cover"
+            onLoadedMetadata={() => {
+              if (videoRef.current) videoRef.current.currentTime = 0.5;
+            }}
+          />
+          <div className="absolute inset-0 flex items-center justify-center bg-black/30 pointer-events-none">
+            <Video className="w-3 h-3 text-white drop-shadow" />
+          </div>
+        </>
+      ) : (
+        <div className="w-full h-full bg-brand-900/40 flex items-center justify-center">
+          <IconComp className={cn(listView ? 'w-4 h-4' : 'w-5 h-5', 'text-brand-400')} />
+        </div>
+      )}
+    </div>
+  );
+
+  const actionsEl = (
+    <div className="flex items-center gap-0.5 flex-shrink-0">
+      <button
+        onClick={handleToggleStar}
+        disabled={starring}
+        aria-label={file.is_starred ? 'Unstar' : 'Star'}
+        className={cn(
+          'p-2 rounded-lg transition-all',
+          file.is_starred
+            ? 'text-yellow-400 hover:text-yellow-300 hover:bg-yellow-900/20'
+            : 'text-gray-600 hover:text-yellow-400 hover:bg-yellow-900/20 opacity-100 sm:opacity-0 sm:group-hover:opacity-100'
+        )}
+      >
+        <Star className={cn('w-4 h-4', file.is_starred && 'fill-yellow-400')} />
+      </button>
+      <div className="relative">
+        <button
+          onClick={(e) => { e.stopPropagation(); setMenuOpen(!menuOpen); }}
+          className="p-2 rounded-lg text-gray-500 hover:text-gray-300 hover:bg-gray-700 transition-all
+                     opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
+          aria-label="File options"
+        >
+          <MoreVertical className="w-4 h-4" />
+        </button>
+        {menuOpen && (
+          <>
+            <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} />
+            <div className="absolute right-0 top-10 w-44 z-20 bg-gray-800 border border-gray-700 rounded-xl shadow-2xl overflow-hidden">
+              <button
+                onClick={() => { handleDownload(); setMenuOpen(false); }}
+                disabled={downloading}
+                className="w-full flex items-center gap-3 px-4 py-3 text-sm text-gray-300 hover:bg-gray-700 active:bg-gray-600 transition-colors"
+              >
+                <Download className="w-4 h-4" /> Download
+              </button>
+              <button
+                onClick={() => { onRename(file.id, file.file_name); setMenuOpen(false); }}
+                className="w-full flex items-center gap-3 px-4 py-3 text-sm text-gray-300 hover:bg-gray-700 active:bg-gray-600 transition-colors"
+              >
+                <Pencil className="w-4 h-4" /> Rename
+              </button>
+              <button
+                onClick={() => { onShare(file.id); setMenuOpen(false); }}
+                className="w-full flex items-center gap-3 px-4 py-3 text-sm text-gray-300 hover:bg-gray-700 active:bg-gray-600 transition-colors"
+              >
+                <Share2 className="w-4 h-4" /> Share
+              </button>
+              <hr className="border-gray-700" />
+              <button
+                onClick={() => { onDelete(file.id); setMenuOpen(false); }}
+                className="w-full flex items-center gap-3 px-4 py-3 text-sm text-red-400 hover:bg-red-900/20 active:bg-red-900/30 transition-colors"
+              >
+                <Trash2 className="w-4 h-4" /> Delete
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+
+  /* ── LIST VIEW ── */
+  if (listView) {
+    return (
+      <div
+        className="group flex items-center gap-3 px-4 py-2.5 bg-gray-900 hover:bg-gray-800/60 transition-colors cursor-pointer"
+        onClick={onPreview}
+      >
+        {thumbnailEl}
+        <div className="flex-1 min-w-0 flex items-center gap-4">
+          <p className="text-sm font-medium text-gray-200 truncate flex-1" title={file.file_name}>
+            {file.file_name}
+          </p>
+          <span className="hidden sm:block text-xs text-gray-500 flex-shrink-0">{formatBytes(file.file_size)}</span>
+          <span className="hidden md:block text-xs text-gray-500 flex-shrink-0">{formatDate(file.created_at)}</span>
+        </div>
+        {actionsEl}
+      </div>
+    );
+  }
+
+  /* ── GRID VIEW — gallery tile ── */
   return (
     <div
-      className="group relative card hover:border-gray-700 hover:bg-gray-800/50 transition-all duration-200 cursor-pointer"
+      className="group relative aspect-square rounded-xl overflow-hidden bg-gray-900 border border-gray-800 cursor-pointer select-none"
       onClick={onPreview}
     >
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex items-center gap-3 min-w-0 flex-1">
-          <div className="flex-shrink-0 w-10 h-10 rounded-lg overflow-hidden border border-brand-800/50">
-            {isImage && previewUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={previewUrl}
-                alt={file.file_name}
-                className="w-full h-full object-cover"
-                onError={() => setPreviewUrl(null)}
-              />
-            ) : (
-              <div className="w-full h-full bg-brand-900/40 flex items-center justify-center">
-                <IconComp className="w-5 h-5 text-brand-400" />
-              </div>
-            )}
+      {/* Full-bleed thumbnail */}
+      {isImage && previewUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={previewUrl}
+          alt={file.file_name}
+          className="absolute inset-0 w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+          onError={() => setPreviewUrl(null)}
+        />
+      ) : isVideo && previewUrl ? (
+        <>
+          <video
+            ref={videoRef}
+            src={previewUrl}
+            muted
+            playsInline
+            preload="metadata"
+            className="absolute inset-0 w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+            onLoadedMetadata={() => {
+              if (videoRef.current) videoRef.current.currentTime = 0.5;
+            }}
+          />
+          {/* Video play badge */}
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+            <div className="w-8 h-8 rounded-full bg-black/50 flex items-center justify-center backdrop-blur-sm">
+              <Video className="w-4 h-4 text-white" />
+            </div>
           </div>
-          <div className="min-w-0 flex-1">
-            <p className="text-sm font-medium text-gray-200 truncate" title={file.file_name}>
-              {truncateFilename(file.file_name)}
-            </p>
-            <p className="text-xs text-gray-500 mt-0.5">
-              {formatBytes(file.file_size)} · {formatDate(file.created_at)}
-            </p>
+        </>
+      ) : (
+        /* Non-media: centered icon */
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-gray-900">
+          <div className="w-14 h-14 rounded-2xl bg-brand-900/60 border border-brand-800/40 flex items-center justify-center">
+            <IconComp className="w-7 h-7 text-brand-400" />
           </div>
         </div>
+      )}
 
-        <div className="flex items-center gap-0.5 flex-shrink-0">
-          {/* Star button — always visible */}
+      {/* Bottom gradient + filename */}
+      <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/80 via-black/30 to-transparent pt-8 pb-2 px-2 pointer-events-none">
+        <p className="text-xs font-medium text-white/90 truncate leading-tight" title={file.file_name}>
+          {truncateFilename(file.file_name, 22)}
+        </p>
+        <p className="text-[10px] text-white/50 mt-0.5">{formatBytes(file.file_size)}</p>
+      </div>
+
+      {/* Star badge — top-left */}
+      {file.is_starred && (
+        <div className="absolute top-1.5 left-1.5 pointer-events-none">
+          <Star className="w-3.5 h-3.5 text-yellow-400 fill-yellow-400 drop-shadow" />
+        </div>
+      )}
+
+      {/* Action overlay — top-right, visible on hover */}
+      <div
+        className="absolute top-1 right-1 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <button
+          onClick={handleToggleStar}
+          disabled={starring}
+          aria-label={file.is_starred ? 'Unstar' : 'Star'}
+          className={cn(
+            'p-1.5 rounded-lg backdrop-blur-sm transition-all',
+            file.is_starred
+              ? 'bg-black/40 text-yellow-400 hover:bg-black/60'
+              : 'bg-black/40 text-white/70 hover:text-yellow-400 hover:bg-black/60'
+          )}
+        >
+          <Star className={cn('w-3.5 h-3.5', file.is_starred && 'fill-yellow-400')} />
+        </button>
+        <div className="relative">
           <button
-            onClick={handleToggleStar}
-            disabled={starring}
-            aria-label={file.is_starred ? 'Unstar' : 'Star'}
-            className={cn(
-              'p-2 rounded-lg transition-all',
-              file.is_starred
-                ? 'text-yellow-400 hover:text-yellow-300 hover:bg-yellow-900/20'
-                : 'text-gray-600 hover:text-yellow-400 hover:bg-yellow-900/20 opacity-100 sm:opacity-0 sm:group-hover:opacity-100'
-            )}
+            onClick={(e) => { e.stopPropagation(); setMenuOpen(!menuOpen); }}
+            className="p-1.5 rounded-lg bg-black/40 backdrop-blur-sm text-white/70 hover:text-white hover:bg-black/60 transition-all"
+            aria-label="File options"
           >
-            <Star className={cn('w-4 h-4', file.is_starred && 'fill-yellow-400')} />
+            <MoreVertical className="w-3.5 h-3.5" />
           </button>
-
-          {/* 3-dot menu */}
-          <div className="relative">
-            <button
-              onClick={(e) => { e.stopPropagation(); setMenuOpen(!menuOpen); }}
-              className="p-2 rounded-lg text-gray-500 hover:text-gray-300 hover:bg-gray-700 transition-all
-                         opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
-              aria-label="File options"
-            >
-              <MoreVertical className="w-4 h-4" />
-            </button>
-
-            {menuOpen && (
-              <>
-                <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} />
-                <div className="absolute right-0 top-10 w-44 z-20 bg-gray-800 border border-gray-700 rounded-xl shadow-2xl overflow-hidden">
-                  <button
-                    onClick={() => { handleDownload(); setMenuOpen(false); }}
-                    disabled={downloading}
-                    className="w-full flex items-center gap-3 px-4 py-3 text-sm text-gray-300 hover:bg-gray-700 active:bg-gray-600 transition-colors"
-                  >
-                    <Download className="w-4 h-4" /> Download
-                  </button>
-                  <button
-                    onClick={() => { onRename(file.id, file.file_name); setMenuOpen(false); }}
-                    className="w-full flex items-center gap-3 px-4 py-3 text-sm text-gray-300 hover:bg-gray-700 active:bg-gray-600 transition-colors"
-                  >
-                    <Pencil className="w-4 h-4" /> Rename
-                  </button>
-                  <button
-                    onClick={() => { onShare(file.id); setMenuOpen(false); }}
-                    className="w-full flex items-center gap-3 px-4 py-3 text-sm text-gray-300 hover:bg-gray-700 active:bg-gray-600 transition-colors"
-                  >
-                    <Share2 className="w-4 h-4" /> Share
-                  </button>
-                  <hr className="border-gray-700" />
-                  <button
-                    onClick={() => { onDelete(file.id); setMenuOpen(false); }}
-                    className="w-full flex items-center gap-3 px-4 py-3 text-sm text-red-400 hover:bg-red-900/20 active:bg-red-900/30 transition-colors"
-                  >
-                    <Trash2 className="w-4 h-4" /> Delete
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
+          {menuOpen && (
+            <>
+              <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} />
+              <div className="absolute right-0 top-8 w-44 z-20 bg-gray-800 border border-gray-700 rounded-xl shadow-2xl overflow-hidden">
+                <button
+                  onClick={() => { handleDownload(); setMenuOpen(false); }}
+                  disabled={downloading}
+                  className="w-full flex items-center gap-3 px-4 py-3 text-sm text-gray-300 hover:bg-gray-700 active:bg-gray-600 transition-colors"
+                >
+                  <Download className="w-4 h-4" /> Download
+                </button>
+                <button
+                  onClick={() => { onRename(file.id, file.file_name); setMenuOpen(false); }}
+                  className="w-full flex items-center gap-3 px-4 py-3 text-sm text-gray-300 hover:bg-gray-700 active:bg-gray-600 transition-colors"
+                >
+                  <Pencil className="w-4 h-4" /> Rename
+                </button>
+                <button
+                  onClick={() => { onShare(file.id); setMenuOpen(false); }}
+                  className="w-full flex items-center gap-3 px-4 py-3 text-sm text-gray-300 hover:bg-gray-700 active:bg-gray-600 transition-colors"
+                >
+                  <Share2 className="w-4 h-4" /> Share
+                </button>
+                <hr className="border-gray-700" />
+                <button
+                  onClick={() => { onDelete(file.id); setMenuOpen(false); }}
+                  className="w-full flex items-center gap-3 px-4 py-3 text-sm text-red-400 hover:bg-red-900/20 active:bg-red-900/30 transition-colors"
+                >
+                  <Trash2 className="w-4 h-4" /> Delete
+                </button>
+              </div>
+            </>
+          )}
         </div>
       </div>
     </div>
   );
+
 }

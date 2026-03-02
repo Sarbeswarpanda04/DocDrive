@@ -8,6 +8,7 @@ import {
 import { formatBytes, formatDate, getMimeIcon } from '@/lib/utils';
 import { cn } from '@/lib/utils';
 import api from '@/lib/api';
+import { getCachedUrl, setCachedUrl } from '@/lib/fileUrlCache';
 
 interface FileItem {
   id: string;
@@ -51,16 +52,25 @@ export function FilePreviewModal({ files, initialIndex, onClose, onRefresh }: Fi
   const file = files[index];
   const isImage = file?.mime_type.startsWith('image/');
   const isPDF = file?.mime_type === 'application/pdf';
+  const isVideo = file?.mime_type.startsWith('video/');
 
   const prev = useCallback(() => setIndex((i) => (i > 0 ? i - 1 : files.length - 1)), [files.length]);
   const next = useCallback(() => setIndex((i) => (i < files.length - 1 ? i + 1 : 0)), [files.length]);
 
-  // Fetch thumbnail URLs for all image files upfront
+  // Fetch thumbnail URLs for all image AND video files upfront (uses cache)
   useEffect(() => {
     files.forEach((f) => {
-      if (!f.mime_type.startsWith('image/')) return;
+      if (!f.mime_type.startsWith('image/') && !f.mime_type.startsWith('video/')) return;
+      const cached = getCachedUrl(f.id);
+      if (cached) {
+        setThumbnailUrls((prev) => ({ ...prev, [f.id]: cached }));
+        return;
+      }
       api.get(`/files/${f.id}/download`)
-        .then((res) => setThumbnailUrls((prev) => ({ ...prev, [f.id]: res.data.url })))
+        .then((res) => {
+          setCachedUrl(f.id, res.data.url);
+          setThumbnailUrls((prev) => ({ ...prev, [f.id]: res.data.url }));
+        })
         .catch(() => {});
     });
   }, [files]);
@@ -73,14 +83,26 @@ export function FilePreviewModal({ files, initialIndex, onClose, onRefresh }: Fi
     }
   }, [index]);
 
-  // Fetch signed URL whenever file changes
+  // Fetch signed URL whenever file changes (uses cache)
   useEffect(() => {
     if (!file) return;
+    const cached = getCachedUrl(file.id);
+    if (cached) {
+      setUrl(cached);
+      setLoading(false);
+      return;
+    }
     setUrl(null);
     setLoading(true);
     let cancelled = false;
     api.get(`/files/${file.id}/download`)
-      .then((res) => { if (!cancelled) { setUrl(res.data.url); setLoading(false); } })
+      .then((res) => {
+        if (!cancelled) {
+          setCachedUrl(file.id, res.data.url);
+          setUrl(res.data.url);
+          setLoading(false);
+        }
+      })
       .catch(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [file?.id]);
@@ -216,7 +238,21 @@ export function FilePreviewModal({ files, initialIndex, onClose, onRefresh }: Fi
           />
         )}
 
-        {!loading && !isImage && !isPDF && (
+        {!loading && isVideo && url && (
+          <video
+            key={url}
+            src={url}
+            controls
+            autoPlay
+            playsInline
+            className="max-w-full max-h-full rounded-lg"
+            style={{ maxHeight: 'calc(100vh - 180px)' }}
+          >
+            Your browser does not support video playback.
+          </video>
+        )}
+
+        {!loading && !isImage && !isPDF && !isVideo && (
           <div className="flex flex-col items-center gap-4 text-center px-8">
             <div className="w-24 h-24 rounded-3xl bg-brand-900/40 border border-brand-800/50 flex items-center justify-center">
               <IconComp className="w-12 h-12 text-brand-400" />
@@ -246,6 +282,7 @@ export function FilePreviewModal({ files, initialIndex, onClose, onRefresh }: Fi
         >
           {files.map((f, i) => {
             const isImg = f.mime_type.startsWith('image/');
+            const isVid = f.mime_type.startsWith('video/');
             const thumbUrl = thumbnailUrls[f.id];
             const ThumbIcon = iconMap[getMimeIcon(f.mime_type)] || File;
             return (
@@ -254,7 +291,7 @@ export function FilePreviewModal({ files, initialIndex, onClose, onRefresh }: Fi
                 ref={(el) => { thumbRefs.current[i] = el; }}
                 onClick={() => setIndex(i)}
                 className={cn(
-                  'flex-shrink-0 w-14 h-14 rounded-lg overflow-hidden transition-all duration-200',
+                  'flex-shrink-0 w-14 h-14 rounded-lg overflow-hidden transition-all duration-200 relative',
                   i === index
                     ? 'ring-2 ring-white ring-offset-1 ring-offset-black scale-105'
                     : 'opacity-50 hover:opacity-80'
@@ -263,6 +300,20 @@ export function FilePreviewModal({ files, initialIndex, onClose, onRefresh }: Fi
                 {isImg && thumbUrl ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img src={thumbUrl} alt={f.file_name} className="w-full h-full object-cover" />
+                ) : isVid && thumbUrl ? (
+                  <>
+                    <video
+                      src={thumbUrl}
+                      muted
+                      playsInline
+                      preload="metadata"
+                      className="w-full h-full object-cover pointer-events-none"
+                      onLoadedMetadata={(e) => { (e.target as HTMLVideoElement).currentTime = 0.5; }}
+                    />
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/30 pointer-events-none">
+                      <Video className="w-5 h-5 text-white drop-shadow" />
+                    </div>
+                  </>
                 ) : (
                   <div className="w-full h-full bg-gray-800 flex items-center justify-center">
                     <ThumbIcon className="w-6 h-6 text-gray-400" />

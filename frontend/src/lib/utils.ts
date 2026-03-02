@@ -67,3 +67,37 @@ export const truncateFilename = (name: string, maxLen = 30): string => {
   const baseTruncated = name.slice(0, maxLen - ext.length - 3);
   return `${baseTruncated}...${ext}`;
 };
+
+/**
+ * Captures the first frame of a video (URL or blob URL) and returns a data-URL thumbnail.
+ * Works client-side only.
+ */
+export const generateVideoThumbnail = (src: string): Promise<string> =>
+  new Promise((resolve, reject) => {
+    const video = document.createElement('video');
+    video.crossOrigin = 'anonymous';
+    video.muted = true;
+    video.playsInline = true;
+    video.preload = 'metadata';
+    video.src = src;
+    video.currentTime = 0.5; // seek past the very first frame so codec has data
+
+    const capture = () => {
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = video.videoWidth || 320;
+        canvas.height = video.videoHeight || 180;
+        canvas.getContext('2d')!.drawImage(video, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL('image/jpeg', 0.7));
+      } catch (e) {
+        reject(e);
+      } finally {
+        video.src = '';
+      }
+    };
+
+    video.addEventListener('seeked', capture, { once: true });
+    video.addEventListener('error', () => reject(new Error('video error')), { once: true });
+    // Some browsers need load() before seeked fires
+    video.load();
+  });
