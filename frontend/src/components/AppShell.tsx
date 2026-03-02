@@ -3,17 +3,16 @@
 import { useAuth } from '@/lib/context/AuthContext';
 import { useRouter } from 'next/navigation';
 import { useEffect, ReactNode } from 'react';
-import { Sidebar } from '@/components/Sidebar';
-import { MobileBottomNav } from '@/components/MobileBottomNav';
+import { Sidebar } from './Sidebar';
+import { MobileBottomNav } from './MobileBottomNav';
 import { Loader2 } from 'lucide-react';
 
-export default function AdminLayout({ children }: { children: ReactNode }) {
+export function AppShell({ children }: { children: ReactNode }) {
   const { user, loading } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
     if (!loading && !user) router.replace('/login');
-    if (!loading && user && user.role !== 'admin') router.replace('/dashboard');
   }, [user, loading, router]);
 
   if (loading) {
@@ -24,11 +23,12 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
     );
   }
 
-  if (!user || user.role !== 'admin') return null;
+  if (!user) return null;
 
   return (
     <div className="flex h-screen overflow-hidden bg-gray-950">
       <Sidebar />
+      {/* pb-16 on mobile to clear the fixed bottom nav */}
       <main className="flex-1 overflow-y-auto pb-16 md:pb-0">
         {children}
       </main>

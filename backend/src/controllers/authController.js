@@ -10,6 +10,7 @@ const COOKIE_OPTIONS = {
   httpOnly: true,
   secure: process.env.NODE_ENV === 'production',
   sameSite: process.env.NODE_ENV === 'production' ? 'strict' : 'lax',
+  path: '/',
   maxAge: 30 * 60 * 1000, // 30 minutes
 };
 
@@ -53,6 +54,7 @@ const register = async (req, res, next) => {
     return res.status(201).json({
       success: true,
       message: 'Registration successful',
+      token,
       user: {
         id: user.id,
         name: user.name,
@@ -123,6 +125,7 @@ const loginWithFace = async (req, res, next) => {
     return res.json({
       success: true,
       message: 'Login successful',
+      token,
       user: {
         id: user.id,
         name: user.name,
@@ -189,6 +192,7 @@ const loginWithMpin = async (req, res, next) => {
     return res.json({
       success: true,
       message: 'Login successful',
+      token,
       user: {
         id: user.id,
         name: user.name,

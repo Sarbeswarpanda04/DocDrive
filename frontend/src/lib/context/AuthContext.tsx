@@ -1,7 +1,7 @@
 'use client';
 
 import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
-import api from '@/lib/api';
+import api, { saveToken, clearToken } from '@/lib/api';
 
 interface User {
   id: string;
@@ -14,9 +14,9 @@ interface User {
 interface AuthContextValue {
   user: User | null;
   loading: boolean;
-  login: (user: User) => void;
+  login: (user: User, token?: string) => void;
   logout: () => Promise<void>;
-  refreshUser: () => Promise<void>;
+  refreshUser: () => Promise<boolean>;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -31,6 +31,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       await api.post('/auth/logout');
     } catch (_) {}
+    clearToken();
     setUser(null);
     window.location.href = '/login';
   }, []);
@@ -65,7 +66,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const res = await api.get('/auth/me');
         setUser(res.data.user);
       } catch (_) {
-        setUser(null);
+        // Only clear user if not already set (e.g. freshly logged in via login())
+        setUser((prev) => prev ?? null);
       } finally {
         setLoading(false);
       }
@@ -73,13 +75,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     fetchMe();
   }, []);
 
-  const login = (userData: User) => setUser(userData);
+  const login = (userData: User, token?: string) => {
+    if (token) saveToken(token);
+    setUser(userData);
+  };
 
-  const refreshUser = async () => {
+  const refreshUser = async (): Promise<boolean> => {
     try {
       const res = await api.get('/auth/me');
       setUser(res.data.user);
-    } catch (_) {}
+      return true;
+    } catch (_) {
+      return false;
+    }
   };
 
   return (

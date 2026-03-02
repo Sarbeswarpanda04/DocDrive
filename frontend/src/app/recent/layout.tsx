@@ -1,6 +1,6 @@
 import { ReactNode } from 'react';
 import { AppShell } from '@/components/AppShell';
 
-export default function DashboardLayout({ children }: { children: ReactNode }) {
+export default function RecentLayout({ children }: { children: ReactNode }) {
   return <AppShell>{children}</AppShell>;
 }

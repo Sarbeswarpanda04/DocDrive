@@ -7,7 +7,14 @@ const logger = require('../utils/logger');
  */
 const authenticate = async (req, res, next) => {
   try {
-    const token = req.cookies?.token;
+    // Accept token from HttpOnly cookie OR Authorization Bearer header
+    let token = req.cookies?.token;
+    if (!token) {
+      const authHeader = req.headers['authorization'];
+      if (authHeader && authHeader.startsWith('Bearer ')) {
+        token = authHeader.slice(7);
+      }
+    }
     if (!token) {
       return res.status(401).json({ success: false, message: 'Authentication required' });
     }

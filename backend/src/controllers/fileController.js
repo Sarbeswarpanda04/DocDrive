@@ -14,13 +14,69 @@ const getFiles = async (req, res, next) => {
     const params = folder_id ? [req.user.id, folder_id] : [req.user.id];
 
     const result = await query(
-      `SELECT id, folder_id, file_name, file_size, mime_type, created_at
+      `SELECT id, folder_id, file_name, file_size, mime_type, is_starred, created_at
        FROM files WHERE user_id = $1 AND ${folderCondition}
        ORDER BY created_at DESC`,
       params
     );
 
     return res.json({ success: true, files: result.rows });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * GET /files/starred
+ */
+const getStarredFiles = async (req, res, next) => {
+  try {
+    const result = await query(
+      `SELECT id, folder_id, file_name, file_size, mime_type, is_starred, created_at
+       FROM files WHERE user_id = $1 AND is_starred = TRUE
+       ORDER BY updated_at DESC`,
+      [req.user.id]
+    );
+    return res.json({ success: true, files: result.rows });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * GET /files/recent
+ */
+const getRecentFiles = async (req, res, next) => {
+  try {
+    const result = await query(
+      `SELECT id, folder_id, file_name, file_size, mime_type, is_starred, created_at
+       FROM files WHERE user_id = $1
+       ORDER BY created_at DESC LIMIT 30`,
+      [req.user.id]
+    );
+    return res.json({ success: true, files: result.rows });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * PATCH /files/:id/star
+ * Toggle starred status
+ */
+const toggleStar = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const result = await query(
+      `UPDATE files SET is_starred = NOT is_starred, updated_at = NOW()
+       WHERE id = $1 AND user_id = $2
+       RETURNING id, is_starred`,
+      [id, req.user.id]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'File not found' });
+    }
+    return res.json({ success: true, file: result.rows[0] });
   } catch (error) {
     next(error);
   }
@@ -225,6 +281,9 @@ const shareFile = async (req, res, next) => {
 
 module.exports = {
   getFiles,
+  getStarredFiles,
+  getRecentFiles,
+  toggleStar,
   uploadFileHandler,
   downloadFile,
   renameFile,

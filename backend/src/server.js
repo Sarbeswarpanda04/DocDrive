@@ -97,7 +97,19 @@ app.use('*', (req, res) => {
 app.use(errorHandler);
 
 // ─── Start Server ────────────────────────────────────────────────────────────
-app.listen(PORT, () => {
+const { query: dbQuery } = require('./config/database');
+
+const runStartupMigrations = async () => {
+  try {
+    await dbQuery(`ALTER TABLE files ADD COLUMN IF NOT EXISTS is_starred BOOLEAN NOT NULL DEFAULT FALSE`);
+    logger.info('Startup migrations complete');
+  } catch (err) {
+    logger.warn('Startup migration warning:', err.message);
+  }
+};
+
+app.listen(PORT, async () => {
+  await runStartupMigrations();
   logger.info(`Doc Drive backend running on port ${PORT} [${process.env.NODE_ENV || 'development'}]`);
 });
 

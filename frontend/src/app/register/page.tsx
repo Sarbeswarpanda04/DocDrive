@@ -6,13 +6,14 @@ import { useState } from 'react';
 import { FaceCapture } from '@/components/FaceCapture';
 import { HardDrive, Loader2, Eye, EyeOff } from 'lucide-react';
 import api from '@/lib/api';
+import { saveToken } from '@/lib/api';
 import { useAuth } from '@/lib/context/AuthContext';
 
 type Step = 'info' | 'face';
 
 export default function RegisterPage() {
   const router = useRouter();
-  const { login } = useAuth();
+  const { login, refreshUser } = useAuth();
   const [step, setStep] = useState<Step>('info');
   const [name, setName] = useState('');
   const [mpin, setMpin] = useState('');
@@ -51,7 +52,10 @@ export default function RegisterPage() {
         mpin,
         faceEmbedding: embedding,
       });
-      login(res.data.user);
+      // Save token immediately so subsequent requests are authenticated
+      if (res.data.token) saveToken(res.data.token);
+      const sessionOk = await refreshUser();
+      if (!sessionOk) login(res.data.user, res.data.token);
       router.push('/dashboard');
     } catch (err: any) {
       setError(err.response?.data?.message || 'Registration failed');
@@ -61,7 +65,7 @@ export default function RegisterPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-950 px-4">
+    <div className="min-h-screen flex items-center justify-center bg-gray-950 px-4 py-8 sm:py-16">
       <div className="w-full max-w-md">
         {/* Logo */}
         <div className="flex items-center justify-center gap-2.5 mb-8">
@@ -79,20 +83,20 @@ export default function RegisterPage() {
           <div className="flex items-center gap-2 mb-6">
             {(['info', 'face'] as Step[]).map((s, i) => (
               <div key={s} className="flex items-center gap-2 flex-1">
-                <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold
+                <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0
                   ${step === s || (s === 'info' && step === 'face') ? 'bg-brand-600 text-white' : 'bg-gray-800 text-gray-500'}`}>
                   {i + 1}
                 </div>
-                <span className={`text-xs ${step === s ? 'text-gray-200' : 'text-gray-500'} flex-1`}>
+                <span className={`text-xs ${step === s ? 'text-gray-200' : 'text-gray-500'} truncate`}>
                   {s === 'info' ? 'Your Info' : 'Face Setup'}
                 </span>
-                {i < 1 && <div className={`h-px flex-1 ${step === 'face' ? 'bg-brand-600' : 'bg-gray-800'}`} />}
+                {i < 1 && <div className={`h-px flex-1 mx-1 ${step === 'face' ? 'bg-brand-600' : 'bg-gray-800'}`} />}
               </div>
             ))}
           </div>
 
           {error && (
-            <div className="mb-4 px-4 py-3 bg-red-900/30 border border-red-800/50 rounded-lg text-sm text-red-400">
+            <div className="mb-4 px-4 py-3 bg-red-900/30 border border-red-800/50 rounded-xl text-sm text-red-400">
               {error}
             </div>
           )}
@@ -114,7 +118,7 @@ export default function RegisterPage() {
                 <label className="block text-sm font-medium text-gray-300 mb-1.5">4-Digit MPIN</label>
                 <div className="relative">
                   <input
-                    className="input-field pr-10"
+                    className="input-field pr-12"
                     type={showMpin ? 'text' : 'password'}
                     value={mpin}
                     onChange={(e) => setMpin(e.target.value.replace(/\D/g, '').slice(0, 4))}
@@ -123,7 +127,7 @@ export default function RegisterPage() {
                     inputMode="numeric"
                   />
                   <button type="button" onClick={() => setShowMpin(!showMpin)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300">
+                    className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 text-gray-500 hover:text-gray-300 transition-colors">
                     {showMpin ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
                 </div>
@@ -140,7 +144,7 @@ export default function RegisterPage() {
                   inputMode="numeric"
                 />
               </div>
-              <button type="submit" className="btn-primary w-full">Continue →</button>
+              <button type="submit" className="btn-primary w-full py-3">Continue →</button>
             </form>
           )}
 
@@ -148,13 +152,13 @@ export default function RegisterPage() {
             <div className="space-y-4">
               <FaceCapture onCapture={handleFaceCapture} label="Capture your face for biometric login" />
               <div className="flex gap-3">
-                <button onClick={() => setStep('info')} className="btn-secondary flex-1">
+                <button onClick={() => setStep('info')} className="btn-secondary flex-1 py-3">
                   ← Back
                 </button>
                 <button
                   onClick={handleSubmit}
                   disabled={!embedding || loading}
-                  className="btn-primary flex-1"
+                  className="btn-primary flex-1 py-3"
                 >
                   {loading ? <><Loader2 className="w-4 h-4 animate-spin" />Creating...</> : 'Create Account'}
                 </button>

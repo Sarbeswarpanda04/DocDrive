@@ -6,13 +6,14 @@ import { useState } from 'react';
 import { FaceCapture } from '@/components/FaceCapture';
 import { HardDrive, Loader2 } from 'lucide-react';
 import api from '@/lib/api';
+import { saveToken } from '@/lib/api';
 import { useAuth } from '@/lib/context/AuthContext';
 
 type LoginMethod = 'face' | 'mpin';
 
 export default function LoginPage() {
   const router = useRouter();
-  const { login } = useAuth();
+  const { login, refreshUser } = useAuth();
   const [method, setMethod] = useState<LoginMethod>('face');
   const [name, setName] = useState('');
   const [mpin, setMpin] = useState('');
@@ -27,7 +28,9 @@ export default function LoginPage() {
     setError('');
     try {
       const res = await api.post('/auth/login/face', { name: name.trim(), faceEmbedding });
-      login(res.data.user);
+      if (res.data.token) saveToken(res.data.token);
+      const sessionOk = await refreshUser();
+      if (!sessionOk) login(res.data.user, res.data.token);
       router.push(res.data.user.role === 'admin' ? '/admin' : '/dashboard');
     } catch (err: any) {
       setError(err.response?.data?.message || 'Face login failed');
@@ -43,7 +46,9 @@ export default function LoginPage() {
     setError('');
     try {
       const res = await api.post('/auth/login/mpin', { name: name.trim(), mpin });
-      login(res.data.user);
+      if (res.data.token) saveToken(res.data.token);
+      const sessionOk = await refreshUser();
+      if (!sessionOk) login(res.data.user, res.data.token);
       router.push(res.data.user.role === 'admin' ? '/admin' : '/dashboard');
     } catch (err: any) {
       setError(err.response?.data?.message || 'MPIN login failed');
@@ -53,7 +58,7 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-950 px-4">
+    <div className="min-h-screen flex items-center justify-center bg-gray-950 px-4 py-8 sm:py-16">
       <div className="w-full max-w-md">
         <div className="flex items-center justify-center gap-2.5 mb-8">
           <div className="w-10 h-10 rounded-xl bg-brand-600 flex items-center justify-center">
@@ -67,13 +72,13 @@ export default function LoginPage() {
           <p className="text-sm text-gray-400 mb-6">Sign in to your secure vault</p>
 
           {/* Method Toggle */}
-          <div className="flex bg-gray-800 rounded-lg p-1 mb-6">
+          <div className="flex bg-gray-800 rounded-xl p-1 mb-6">
             {(['face', 'mpin'] as LoginMethod[]).map((m) => (
               <button
                 key={m}
                 onClick={() => { setMethod(m); setError(''); }}
-                className={`flex-1 py-2 text-sm font-medium rounded-md transition-colors capitalize
-                  ${method === m ? 'bg-brand-600 text-white' : 'text-gray-400 hover:text-gray-200'}`}
+                className={`flex-1 py-2.5 text-sm font-medium rounded-lg transition-colors capitalize
+                  ${method === m ? 'bg-brand-600 text-white shadow-sm' : 'text-gray-400 hover:text-gray-200'}`}
               >
                 {m === 'face' ? '🪪 Face Login' : '🔢 MPIN Login'}
               </button>
@@ -81,7 +86,7 @@ export default function LoginPage() {
           </div>
 
           {error && (
-            <div className="mb-4 px-4 py-3 bg-red-900/30 border border-red-800/50 rounded-lg text-sm text-red-400">
+            <div className="mb-4 px-4 py-3 bg-red-900/30 border border-red-800/50 rounded-xl text-sm text-red-400">
               {error}
             </div>
           )}
@@ -105,7 +110,7 @@ export default function LoginPage() {
               <button
                 onClick={handleFaceLogin}
                 disabled={!faceEmbedding || loading}
-                className="btn-primary w-full"
+                className="btn-primary w-full py-3"
               >
                 {loading ? <><Loader2 className="w-4 h-4 animate-spin" />Verifying...</> : 'Sign In with Face'}
               </button>
@@ -124,7 +129,7 @@ export default function LoginPage() {
                   inputMode="numeric"
                 />
               </div>
-              <button type="submit" disabled={loading} className="btn-primary w-full">
+              <button type="submit" disabled={loading} className="btn-primary w-full py-3">
                 {loading ? <><Loader2 className="w-4 h-4 animate-spin" />Signing in...</> : 'Sign In'}
               </button>
             </form>
