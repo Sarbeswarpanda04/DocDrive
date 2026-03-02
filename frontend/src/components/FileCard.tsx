@@ -257,54 +257,47 @@ export function FileCard({ file, listView = false, onRename, onDelete, onShare, 
           </div>
         </>
       ) : (
-        /* Non-media: centered icon */
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-gray-900">
-          <div className="w-14 h-14 rounded-2xl bg-brand-900/60 border border-brand-800/40 flex items-center justify-center">
-            <IconComp className="w-7 h-7 text-brand-400" />
+        /* Non-media: full-bleed gradient background with centered icon */
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-3">
+          <div className="absolute inset-0 bg-gradient-to-br from-brand-950/80 via-gray-900 to-gray-950" />
+          <div className="absolute inset-0 opacity-5" style={{ backgroundImage: 'radial-gradient(circle at 30% 30%, #6366f1 0%, transparent 60%)' }} />
+          <div className="relative w-16 h-16 rounded-2xl bg-brand-800/30 border border-brand-600/20 flex items-center justify-center shadow-lg">
+            <IconComp className="w-8 h-8 text-brand-300" />
           </div>
         </div>
       )}
 
       {/* Bottom gradient + filename */}
-      <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/80 via-black/30 to-transparent pt-8 pb-2 px-2 pointer-events-none">
-        <p className="text-xs font-medium text-white/90 truncate leading-tight" title={file.file_name}>
+      <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/90 via-black/60 to-transparent pt-16 pb-3 px-2.5 pointer-events-none">
+        <p className="text-[11px] font-semibold text-white truncate leading-tight" title={file.file_name}>
           {truncateFilename(file.file_name, 22)}
         </p>
         <p className="text-[10px] text-white/50 mt-0.5">{formatBytes(file.file_size)}</p>
       </div>
 
-      {/* Star badge — top-left */}
-      {file.is_starred && (
-        <div className="absolute top-1.5 left-1.5 pointer-events-none">
-          <Star className="w-3.5 h-3.5 text-yellow-400 fill-yellow-400 drop-shadow" />
-        </div>
-      )}
-
-      {/* Action overlay — top-right, visible on hover */}
+      {/* Action bar — top-right, always visible */}
       <div
-        className="absolute top-1 right-1 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+        className="absolute top-1.5 right-1.5 flex items-center rounded-xl bg-black/45 backdrop-blur-md border border-white/10 overflow-visible"
         onClick={(e) => e.stopPropagation()}
       >
+        {/* Star */}
         <button
           onClick={handleToggleStar}
           disabled={starring}
           aria-label={file.is_starred ? 'Unstar' : 'Star'}
-          className={cn(
-            'p-1.5 rounded-lg backdrop-blur-sm transition-all',
-            file.is_starred
-              ? 'bg-black/40 text-yellow-400 hover:bg-black/60'
-              : 'bg-black/40 text-white/70 hover:text-yellow-400 hover:bg-black/60'
-          )}
+          className="p-1.5 transition-all hover:bg-white/10 active:scale-90 rounded-xl"
         >
-          <Star className={cn('w-3.5 h-3.5', file.is_starred && 'fill-yellow-400')} />
+          <Star className={cn('w-3.5 h-3.5 drop-shadow', file.is_starred ? 'text-yellow-400 fill-yellow-400' : 'text-white/60')} />
         </button>
+
+        {/* 3-dot menu */}
         <div className="relative">
           <button
             onClick={(e) => { e.stopPropagation(); setMenuOpen(!menuOpen); }}
-            className="p-1.5 rounded-lg bg-black/40 backdrop-blur-sm text-white/70 hover:text-white hover:bg-black/60 transition-all"
+            className="p-1.5 rounded-xl text-white/60 hover:text-white hover:bg-white/10 active:scale-90 transition-all"
             aria-label="File options"
           >
-            <MoreVertical className="w-3.5 h-3.5" />
+            <MoreVertical className="w-3.5 h-3.5 drop-shadow" />
           </button>
           {menuOpen && (
             <>
