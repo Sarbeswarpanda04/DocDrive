@@ -87,6 +87,7 @@ export default function RecentPage() {
                 onDelete={(id) => setDeleteConfirm({ id })}
                 onShare={(id) => setShareModal({ id, name: file.file_name })}
                 onRefresh={refresh}
+                onPreview={() => {}}
               />
             ))}
           </div>

@@ -23,7 +23,7 @@ interface FileCardProps {
   onDelete: (id: string) => void;
   onShare: (id: string) => void;
   onRefresh: () => void;
-  onPreview: () => void;
+  onPreview?: () => void;
 }
 
 const iconMap: Record<string, React.ElementType> = {
