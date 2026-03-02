@@ -52,7 +52,7 @@ app.use(
       if (!origin) return callback(null, true); // allow server-to-server / same-origin
       if (allowedOrigins.includes(origin)) return callback(null, true);
       // Allow all Vercel preview deployments for this project
-      if (origin.match(/https:\/\/docdrive[a-z0-9-]*\.vercel\.app$/)) return callback(null, true);
+      if (origin.match(/https:\/\/doc[-]?drive[a-z0-9-]*\.vercel\.app$/)) return callback(null, true);
       callback(new Error('Not allowed by CORS'));
     },
     credentials: true, // Required for cookies
