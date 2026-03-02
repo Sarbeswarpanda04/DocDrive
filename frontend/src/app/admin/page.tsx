@@ -1,315 +1,236 @@
-'use client';
+﻿'use client';
 
-import { useState } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import Link from 'next/link';
+import { useQuery } from '@tanstack/react-query';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
 } from 'recharts';
-import { Modal } from '@/components/Modal';
 import {
-  Users, HardDrive, Lock, Ban, Activity, Loader2,
-  ToggleLeft, ToggleRight, Unlock, Pencil
+  Users, HardDrive, FileText, FolderOpen,
+  Lock, Ban, TrendingUp, Activity, Loader2,
+  ChevronRight, UserPlus,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { formatBytes, formatDate } from '@/lib/utils';
 
-type Tab = 'overview' | 'users' | 'logs';
-
-export default function AdminPage() {
-  const queryClient = useQueryClient();
-  const [tab, setTab] = useState<Tab>('overview');
-  const [quotaModal, setQuotaModal] = useState<{ id: string; name: string; quota: number } | null>(null);
-  const [newQuotaGB, setNewQuotaGB] = useState('');
-  const [actionLoading, setActionLoading] = useState(false);
-
-  const { data: analytics, isLoading: analyticsLoading } = useQuery({
+export default function AdminOverviewPage() {
+  const { data: analytics, isLoading } = useQuery({
     queryKey: ['admin-analytics'],
     queryFn: () => api.get('/admin/analytics').then((r) => r.data.analytics),
+    refetchInterval: 30_000,
   });
 
-  const { data: users, isLoading: usersLoading } = useQuery({
-    queryKey: ['admin-users'],
-    queryFn: () => api.get('/admin/users').then((r) => r.data.users),
-    enabled: tab === 'users',
+  const { data: logsData } = useQuery({
+    queryKey: ['admin-logs-recent'],
+    queryFn: () => api.get('/admin/logs?limit=6').then((r) => r.data),
+    refetchInterval: 60_000,
   });
 
-  const { data: logsData, isLoading: logsLoading } = useQuery({
-    queryKey: ['admin-logs'],
-    queryFn: () => api.get('/admin/logs').then((r) => r.data),
-    enabled: tab === 'logs',
-  });
+  const storagePercent = analytics?.total_storage_quota > 0
+    ? Math.round((analytics.total_storage_used / analytics.total_storage_quota) * 100)
+    : 0;
 
-  const handleUpdateQuota = async () => {
-    if (!quotaModal || !newQuotaGB) return;
-    const bytes = Math.round(parseFloat(newQuotaGB) * 1024 * 1024 * 1024);
-    setActionLoading(true);
-    try {
-      await api.patch(`/admin/users/${quotaModal.id}/quota`, { quota_bytes: bytes });
-      queryClient.invalidateQueries({ queryKey: ['admin-users'] });
-      queryClient.invalidateQueries({ queryKey: ['admin-analytics'] });
-      setQuotaModal(null);
-      setNewQuotaGB('');
-    } catch (err: any) {
-      alert(err.response?.data?.message || 'Failed to update quota');
-    } finally {
-      setActionLoading(false);
-    }
+  const statCards = [
+    {
+      label: 'Total Users',
+      value: analytics?.total_users ?? 0,
+      icon: Users,
+      color: 'bg-blue-700',
+      glow: 'shadow-blue-900/40',
+      sub: `+${analytics?.new_users_7d ?? 0} this week`,
+    },
+    {
+      label: 'Total Files',
+      value: analytics?.total_files ?? 0,
+      icon: FileText,
+      color: 'bg-emerald-700',
+      glow: 'shadow-emerald-900/40',
+      sub: `${analytics?.total_folders ?? 0} folders`,
+    },
+    {
+      label: 'Storage Used',
+      value: formatBytes(analytics?.total_storage_used ?? 0),
+      icon: HardDrive,
+      color: storagePercent >= 80 ? 'bg-red-700' : storagePercent >= 60 ? 'bg-yellow-700' : 'bg-purple-700',
+      glow: 'shadow-purple-900/40',
+      sub: `${storagePercent}% of ${formatBytes(analytics?.total_storage_quota ?? 0)}`,
+    },
+    {
+      label: 'Locked / Disabled',
+      value: `${analytics?.locked_accounts ?? 0} / ${analytics?.disabled_accounts ?? 0}`,
+      icon: Lock,
+      color: 'bg-red-700',
+      glow: 'shadow-red-900/40',
+      sub: 'accounts need attention',
+    },
+  ];
+
+  const actionBadgeColor: Record<string, string> = {
+    UPDATE_QUOTA: 'badge-blue',
+    DISABLE_USER: 'badge-red',
+    ENABLE_USER: 'badge-green',
+    UNLOCK_USER: 'badge-yellow',
+    DELETE_USER: 'badge-red',
   };
 
-  const handleToggleDisable = async (userId: string) => {
-    try {
-      await api.patch(`/admin/users/${userId}/toggle-disable`);
-      queryClient.invalidateQueries({ queryKey: ['admin-users'] });
-    } catch (err: any) {
-      alert(err.response?.data?.message || 'Action failed');
-    }
-  };
-
-  const handleUnlock = async (userId: string) => {
-    try {
-      await api.patch(`/admin/users/${userId}/unlock`);
-      queryClient.invalidateQueries({ queryKey: ['admin-users'] });
-    } catch (err: any) {
-      alert(err.response?.data?.message || 'Action failed');
-    }
-  };
-
-  const StatCard = ({ label, value, icon: Icon, color }: any) => (
-    <div className="card flex items-center gap-4">
-      <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${color}`}>
-        <Icon className="w-6 h-6 text-white" />
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-full py-32">
+        <Loader2 className="w-8 h-8 text-purple-400 animate-spin" />
       </div>
-      <div>
-        <p className="text-2xl font-bold text-gray-100">{value}</p>
-        <p className="text-sm text-gray-400">{label}</p>
-      </div>
-    </div>
-  );
+    );
+  }
 
   return (
-    <div className="max-w-7xl mx-auto px-6 py-8 space-y-6">
-      <h1 className="text-2xl font-bold text-gray-100">Admin Panel</h1>
+    <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-xl sm:text-2xl font-bold text-gray-100">Overview</h1>
+          <p className="text-sm text-gray-500 mt-0.5">System health &amp; activity at a glance</p>
+        </div>
+        <Link
+          href="/admin/users"
+          className="btn-secondary text-xs px-3 py-2 gap-1.5"
+        >
+          <UserPlus className="w-3.5 h-3.5" />
+          Manage Users
+        </Link>
+      </div>
 
-      {/* Tabs */}
-      <div className="flex bg-gray-900 border border-gray-800 rounded-xl p-1 w-fit">
-        {(['overview', 'users', 'logs'] as Tab[]).map((t) => (
-          <button
-            key={t}
-            onClick={() => setTab(t)}
-            className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors capitalize
-              ${tab === t ? 'bg-brand-600 text-white' : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800'}`}
-          >
-            {t}
-          </button>
+      {/* Stat Cards */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+        {statCards.map(({ label, value, icon: Icon, color, glow, sub }) => (
+          <div key={label} className="card-sm flex flex-col gap-3">
+            <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 shadow-lg ${color} ${glow}`}>
+              <Icon className="w-5 h-5 text-white" />
+            </div>
+            <div>
+              <p className="text-xl sm:text-2xl font-bold text-gray-100 leading-tight">{value}</p>
+              <p className="text-xs font-medium text-gray-400">{label}</p>
+              <p className="text-[11px] text-gray-600 mt-0.5">{sub}</p>
+            </div>
+          </div>
         ))}
       </div>
 
-      {/* Overview */}
-      {tab === 'overview' && (
-        <div className="space-y-6">
-          {analyticsLoading ? (
-            <div className="flex justify-center py-16"><Loader2 className="w-8 h-8 text-gray-600 animate-spin" /></div>
-          ) : (
-            <>
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                <StatCard label="Total Users" value={analytics?.total_users ?? 0} icon={Users} color="bg-brand-600" />
-                <StatCard label="Total Storage" value={formatBytes(analytics?.total_storage_used ?? 0)} icon={HardDrive} color="bg-emerald-600" />
-                <StatCard label="Locked Accounts" value={analytics?.locked_accounts ?? 0} icon={Lock} color="bg-yellow-600" />
-                <StatCard label="Disabled Accounts" value={analytics?.disabled_accounts ?? 0} icon={Ban} color="bg-red-600" />
-              </div>
+      {/* Storage Bar */}
+      <div className="card space-y-3">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-gray-300 flex items-center gap-2">
+            <HardDrive className="w-4 h-4 text-purple-400" />
+            Platform Storage
+          </h3>
+          <span className="text-xs text-gray-500">
+            {formatBytes(analytics?.total_storage_used ?? 0)} / {formatBytes(analytics?.total_storage_quota ?? 0)}
+          </span>
+        </div>
+        <div className="h-3 bg-gray-800 rounded-full overflow-hidden">
+          <div
+            className={`h-full rounded-full transition-all duration-700 ${
+              storagePercent >= 80 ? 'bg-red-500' : storagePercent >= 60 ? 'bg-yellow-500' : 'bg-purple-500'
+            }`}
+            style={{ width: `${storagePercent}%` }}
+          />
+        </div>
+        <p className="text-xs text-gray-600">{storagePercent}% consumed across all user accounts</p>
+      </div>
 
-              {/* Storage Chart */}
-              {analytics?.top_users?.length > 0 && (
-                <div className="card">
-                  <h3 className="text-sm font-semibold text-gray-300 mb-4 flex items-center gap-2">
-                    <Activity className="w-4 h-4 text-brand-400" />
-                    Top Storage Users
-                  </h3>
-                  <ResponsiveContainer width="100%" height={200}>
-                    <BarChart data={analytics.top_users.slice(0, 10)} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
-                      <XAxis dataKey="name" tick={{ fill: '#6b7280', fontSize: 11 }} />
-                      <YAxis tick={{ fill: '#6b7280', fontSize: 11 }} tickFormatter={(v) => formatBytes(v, 0)} />
-                      <Tooltip
-                        contentStyle={{ background: '#111827', border: '1px solid #374151', borderRadius: '8px' }}
-                        labelStyle={{ color: '#e5e7eb' }}
-                        formatter={(v: number) => [formatBytes(v), 'Used']}
-                      />
-                      <Bar dataKey="storage_used" radius={[4, 4, 0, 0]}>
-                        {analytics.top_users.slice(0, 10).map((_: any, i: number) => (
-                          <Cell key={i} fill={`hsl(${220 + i * 10}, 70%, 55%)`} />
-                        ))}
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
+      <div className="grid md:grid-cols-2 gap-4">
+        {/* Top Storage Users Chart */}
+        {analytics?.top_users?.length > 0 && (
+          <div className="card">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-sm font-semibold text-gray-300 flex items-center gap-2">
+                <TrendingUp className="w-4 h-4 text-purple-400" />
+                Top Storage Users
+              </h3>
+              <Link href="/admin/users" className="text-xs text-purple-400 hover:text-purple-300 flex items-center gap-0.5">
+                All <ChevronRight className="w-3 h-3" />
+              </Link>
+            </div>
+            <ResponsiveContainer width="100%" height={180}>
+              <BarChart
+                data={analytics.top_users.slice(0, 8)}
+                margin={{ top: 0, right: 0, left: -10, bottom: 0 }}
+              >
+                <XAxis
+                  dataKey="name"
+                  tick={{ fill: '#6b7280', fontSize: 10 }}
+                  tickFormatter={(v) => v.split(' ')[0]}
+                />
+                <YAxis
+                  tick={{ fill: '#6b7280', fontSize: 10 }}
+                  tickFormatter={(v) => formatBytes(v, 0)}
+                />
+                <Tooltip
+                  contentStyle={{ background: '#111827', border: '1px solid #374151', borderRadius: '10px', fontSize: '12px' }}
+                  labelStyle={{ color: '#e5e7eb', fontWeight: 600 }}
+                  formatter={(v: number) => [formatBytes(v), 'Used']}
+                />
+                <Bar dataKey="storage_used" radius={[4, 4, 0, 0]}>
+                  {analytics.top_users.slice(0, 8).map((_: unknown, i: number) => (
+                    <Cell key={i} fill={`hsl(${260 + i * 15}, 65%, 58%)`} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+
+        {/* Recent Activity Logs */}
+        <div className="card">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-sm font-semibold text-gray-300 flex items-center gap-2">
+              <Activity className="w-4 h-4 text-purple-400" />
+              Recent Activity
+            </h3>
+            <Link href="/admin/logs" className="text-xs text-purple-400 hover:text-purple-300 flex items-center gap-0.5">
+              All <ChevronRight className="w-3 h-3" />
+            </Link>
+          </div>
+          <div className="space-y-2">
+            {logsData?.logs?.length === 0 && (
+              <p className="text-sm text-gray-600 text-center py-6">No activity yet</p>
+            )}
+            {logsData?.logs?.map((log: any) => (
+              <div key={log.id} className="flex items-center gap-3 py-2 border-b border-gray-800/60 last:border-0">
+                <div className="w-7 h-7 rounded-full bg-gray-800 flex items-center justify-center text-xs font-bold text-gray-400 uppercase flex-shrink-0">
+                  {log.admin_name?.[0] ?? 'A'}
                 </div>
-              )}
-            </>
-          )}
-        </div>
-      )}
-
-      {/* Users */}
-      {tab === 'users' && (
-        <div className="card overflow-hidden p-0">
-          {usersLoading ? (
-            <div className="flex justify-center py-16"><Loader2 className="w-8 h-8 text-gray-600 animate-spin" /></div>
-          ) : (
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-gray-800">
-                  {['User', 'Storage', 'Status', 'Actions'].map((h) => (
-                    <th key={h} className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wider px-4 py-3">
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-800">
-                {users?.map((user: any) => {
-                  const percent = user.storage_quota > 0
-                    ? Math.round((user.storage_used / user.storage_quota) * 100) : 0;
-
-                  return (
-                    <tr key={user.id} className="hover:bg-gray-800/30 transition-colors">
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 rounded-full bg-brand-700 flex items-center justify-center text-xs font-bold text-white uppercase">
-                            {user.name[0]}
-                          </div>
-                          <div>
-                            <p className="font-medium text-gray-200">{user.name}</p>
-                            <p className="text-xs text-gray-500">{formatDate(user.created_at)}</p>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="space-y-1 min-w-[120px]">
-                          <div className="flex justify-between text-xs">
-                            <span className="text-gray-400">{formatBytes(user.storage_used)}</span>
-                            <span className="text-gray-500">{formatBytes(user.storage_quota)}</span>
-                          </div>
-                          <div className="h-1.5 bg-gray-800 rounded-full overflow-hidden">
-                            <div
-                              className={`h-full rounded-full ${percent >= 90 ? 'bg-red-500' : percent >= 70 ? 'bg-yellow-500' : 'bg-brand-500'}`}
-                              style={{ width: `${percent}%` }}
-                            />
-                          </div>
-                          <p className="text-xs text-gray-600">{percent}% used</p>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex flex-col gap-1">
-                          {user.account_disabled && <span className="badge-red">Disabled</span>}
-                          {user.account_locked && <span className="badge-yellow">Locked</span>}
-                          {!user.account_disabled && !user.account_locked && (
-                            <span className="badge-green">Active</span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-1.5">
-                          <button
-                            onClick={() => {
-                              setQuotaModal({ id: user.id, name: user.name, quota: user.storage_quota });
-                              setNewQuotaGB(`${(user.storage_quota / (1024 ** 3)).toFixed(1)}`);
-                            }}
-                            className="p-1.5 rounded-md text-gray-400 hover:text-brand-400 hover:bg-brand-900/20 transition-colors"
-                            title="Edit Quota"
-                          >
-                            <Pencil className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            onClick={() => handleToggleDisable(user.id)}
-                            className={`p-1.5 rounded-md transition-colors ${
-                              user.account_disabled
-                                ? 'text-green-400 hover:bg-green-900/20'
-                                : 'text-red-400 hover:bg-red-900/20'
-                            }`}
-                            title={user.account_disabled ? 'Enable' : 'Disable'}
-                          >
-                            {user.account_disabled
-                              ? <ToggleRight className="w-3.5 h-3.5" />
-                              : <ToggleLeft className="w-3.5 h-3.5" />}
-                          </button>
-                          {user.account_locked && (
-                            <button
-                              onClick={() => handleUnlock(user.id)}
-                              className="p-1.5 rounded-md text-yellow-400 hover:bg-yellow-900/20 transition-colors"
-                              title="Unlock"
-                            >
-                              <Unlock className="w-3.5 h-3.5" />
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          )}
-        </div>
-      )}
-
-      {/* Logs */}
-      {tab === 'logs' && (
-        <div className="card overflow-hidden p-0">
-          {logsLoading ? (
-            <div className="flex justify-center py-16"><Loader2 className="w-8 h-8 text-gray-600 animate-spin" /></div>
-          ) : (
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-gray-800">
-                  {['Admin', 'Action', 'Target', 'Time'].map((h) => (
-                    <th key={h} className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wider px-4 py-3">
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-800">
-                {logsData?.logs?.map((log: any) => (
-                  <tr key={log.id} className="hover:bg-gray-800/30 transition-colors">
-                    <td className="px-4 py-3 text-gray-300 font-medium">{log.admin_name}</td>
-                    <td className="px-4 py-3">
-                      <span className="badge-blue">{log.action}</span>
-                    </td>
-                    <td className="px-4 py-3 text-gray-400">{log.target_user_name || '—'}</td>
-                    <td className="px-4 py-3 text-gray-500 text-xs">{formatDate(log.timestamp)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-      )}
-
-      {/* Quota Edit Modal */}
-      <Modal open={!!quotaModal} onClose={() => setQuotaModal(null)} title="Edit Storage Quota" size="sm">
-        <div className="space-y-4">
-          <p className="text-sm text-gray-400">
-            Set storage quota for <span className="text-gray-200 font-medium">{quotaModal?.name}</span>
-          </p>
-          <div>
-            <label className="block text-sm font-medium text-gray-300 mb-1.5">Quota (GB)</label>
-            <input
-              className="input-field"
-              type="number"
-              value={newQuotaGB}
-              onChange={(e) => setNewQuotaGB(e.target.value)}
-              placeholder="e.g. 5"
-              min="0.1"
-              step="0.5"
-            />
-          </div>
-          <div className="flex gap-3">
-            <button onClick={() => setQuotaModal(null)} className="btn-secondary flex-1">Cancel</button>
-            <button onClick={handleUpdateQuota} disabled={actionLoading} className="btn-primary flex-1">
-              {actionLoading ? <><Loader2 className="w-4 h-4 animate-spin" />Saving...</> : 'Save Quota'}
-            </button>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs text-gray-300 truncate">
+                    <span className="font-medium">{log.admin_name}</span>
+                    {log.target_user_name && <> â†’ <span className="text-gray-400">{log.target_user_name}</span></>}
+                  </p>
+                  <p className="text-[10px] text-gray-600">{formatDate(log.timestamp)}</p>
+                </div>
+                <span className={actionBadgeColor[log.action] ?? 'badge-blue'}>
+                  {log.action.replace(/_/g, ' ')}
+                </span>
+              </div>
+            ))}
           </div>
         </div>
-      </Modal>
+      </div>
+
+      {/* Quick Stats Row */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {[
+          { label: 'New Users (7d)',   value: analytics?.new_users_7d ?? 0,       icon: UserPlus,    color: 'text-blue-400'   },
+          { label: 'Total Folders',    value: analytics?.total_folders ?? 0,       icon: FolderOpen,  color: 'text-emerald-400'},
+          { label: 'Locked Accounts',  value: analytics?.locked_accounts ?? 0,     icon: Lock,        color: 'text-yellow-400' },
+          { label: 'Disabled Accounts',value: analytics?.disabled_accounts ?? 0,   icon: Ban,         color: 'text-red-400'    },
+        ].map(({ label, value, icon: Icon, color }) => (
+          <div key={label} className="bg-gray-900 border border-gray-800 rounded-xl p-3 flex items-center gap-3">
+            <Icon className={`w-5 h-5 flex-shrink-0 ${color}`} />
+            <div className="min-w-0">
+              <p className="text-lg font-bold text-gray-100 leading-tight">{value}</p>
+              <p className="text-[11px] text-gray-500 truncate">{label}</p>
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

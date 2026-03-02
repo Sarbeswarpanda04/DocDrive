@@ -142,6 +142,9 @@ const getAnalytics = async (req, res, next) => {
       lockedResult,
       disabledResult,
       perUserResult,
+      totalFilesResult,
+      totalFoldersResult,
+      newUsersResult,
     ] = await Promise.all([
       query(`SELECT COUNT(*) FROM users WHERE role = 'user'`),
       query(`SELECT COALESCE(SUM(storage_used), 0) AS total_used,
@@ -154,6 +157,9 @@ const getAnalytics = async (req, res, next) => {
          FROM users WHERE role = 'user'
          ORDER BY storage_used DESC LIMIT 20`
       ),
+      query(`SELECT COUNT(*) FROM files`),
+      query(`SELECT COUNT(*) FROM folders`),
+      query(`SELECT COUNT(*) FROM users WHERE role = 'user' AND created_at > NOW() - INTERVAL '7 days'`),
     ]);
 
     return res.json({
@@ -164,6 +170,9 @@ const getAnalytics = async (req, res, next) => {
         total_storage_quota: Number(storageResult.rows[0].total_quota),
         locked_accounts: parseInt(lockedResult.rows[0].count),
         disabled_accounts: parseInt(disabledResult.rows[0].count),
+        total_files: parseInt(totalFilesResult.rows[0].count),
+        total_folders: parseInt(totalFoldersResult.rows[0].count),
+        new_users_7d: parseInt(newUsersResult.rows[0].count),
         top_users: perUserResult.rows.map((u) => ({
           ...u,
           storage_used: Number(u.storage_used),
@@ -171,6 +180,78 @@ const getAnalytics = async (req, res, next) => {
         })),
       },
     });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * GET /admin/users/:id
+ */
+const getUserDetail = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const [userResult, fileCount, folderCount, recentFiles] = await Promise.all([
+      query(
+        `SELECT id, name, role, storage_quota, storage_used,
+                failed_attempts, account_locked, account_disabled, created_at
+         FROM users WHERE id = $1`,
+        [id]
+      ),
+      query(`SELECT COUNT(*) FROM files WHERE user_id = $1`, [id]),
+      query(`SELECT COUNT(*) FROM folders WHERE user_id = $1`, [id]),
+      query(
+        `SELECT id, file_name, file_size, mime_type, created_at
+         FROM files WHERE user_id = $1
+         ORDER BY created_at DESC LIMIT 10`,
+        [id]
+      ),
+    ]);
+
+    if (userResult.rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    const u = userResult.rows[0];
+    return res.json({
+      success: true,
+      user: {
+        ...u,
+        storage_quota: Number(u.storage_quota),
+        storage_used: Number(u.storage_used),
+        file_count: parseInt(fileCount.rows[0].count),
+        folder_count: parseInt(folderCount.rows[0].count),
+      },
+      recent_files: recentFiles.rows,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * DELETE /admin/users/:id
+ */
+const deleteUser = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    if (id === String(req.user.id)) {
+      return res.status(400).json({ success: false, message: 'Cannot delete your own account' });
+    }
+
+    const result = await query(
+      `DELETE FROM users WHERE id = $1 AND role = 'user' RETURNING id, name`,
+      [id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    await logAdminAction(req.user.id, 'DELETE_USER', null, { deleted_user: result.rows[0].name });
+
+    return res.json({ success: true, message: `User "${result.rows[0].name}" deleted` });
   } catch (error) {
     next(error);
   }
@@ -249,4 +330,6 @@ module.exports = {
   getAnalytics,
   getAdminLogs,
   setupAdmin,
+  getUserDetail,
+  deleteUser,
 };

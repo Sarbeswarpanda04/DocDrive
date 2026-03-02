@@ -8,6 +8,8 @@ const {
   getAnalytics,
   getAdminLogs,
   setupAdmin,
+  getUserDetail,
+  deleteUser,
 } = require('../controllers/adminController');
 const { authenticate, requireAdmin } = require('../middleware/auth');
 
@@ -18,9 +20,11 @@ router.post('/setup', authenticate, setupAdmin);
 router.use(authenticate, requireAdmin);
 
 router.get('/users', getAllUsers);
+router.get('/users/:id', getUserDetail);
 router.patch('/users/:id/quota', updateUserQuota);
 router.patch('/users/:id/toggle-disable', toggleUserDisabled);
 router.patch('/users/:id/unlock', unlockUser);
+router.delete('/users/:id', deleteUser);
 router.get('/analytics', getAnalytics);
 router.get('/logs', getAdminLogs);
 
