@@ -4,6 +4,7 @@ import { useState, useCallback, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { FolderTree } from '@/components/FolderTree';
 import { FileCard } from '@/components/FileCard';
+import { FilePreviewModal } from '@/components/FilePreviewModal';
 import { UploadZone, UploadZoneHandle } from '@/components/UploadZone';
 import { Modal } from '@/components/Modal';
 import { ShareModal } from '@/components/ShareModal';
@@ -25,6 +26,7 @@ export default function DashboardPage() {
   const [newFolderName, setNewFolderName] = useState('');
   const [shareModal, setShareModal] = useState<{ id: string; name: string } | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
+  const [previewIndex, setPreviewIndex] = useState<number | null>(null);
   const uploadZoneRef = useRef<UploadZoneHandle>(null);
 
   // Mobile upload state
@@ -350,7 +352,7 @@ export default function DashboardPage() {
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-4">
-              {filesData?.map((file: any) => (
+              {filesData?.map((file: any, idx: number) => (
                 <FileCard
                   key={file.id}
                   file={file}
@@ -358,12 +360,23 @@ export default function DashboardPage() {
                   onDelete={(id) => setDeleteConfirm({ id, type: 'file' })}
                   onShare={(id) => setShareModal({ id, name: file.file_name })}
                   onRefresh={refresh}
+                  onPreview={() => setPreviewIndex(idx)}
                 />
               ))}
             </div>
           )}
         </div>
       </div>
+
+      {/* File preview lightbox */}
+      {previewIndex !== null && filesData && (
+        <FilePreviewModal
+          files={filesData}
+          initialIndex={previewIndex}
+          onClose={() => setPreviewIndex(null)}
+          onRefresh={refresh}
+        />
+      )}
 
       {/* Rename Modal */}
       <Modal

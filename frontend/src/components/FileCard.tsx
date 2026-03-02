@@ -21,6 +21,7 @@ interface FileCardProps {
   onDelete: (id: string) => void;
   onShare: (id: string) => void;
   onRefresh: () => void;
+  onPreview: () => void;
 }
 
 const iconMap: Record<string, React.ElementType> = {
@@ -33,7 +34,7 @@ const iconMap: Record<string, React.ElementType> = {
   file: File,
 };
 
-export function FileCard({ file, onRename, onDelete, onShare, onRefresh }: FileCardProps) {
+export function FileCard({ file, onRename, onDelete, onShare, onRefresh, onPreview }: FileCardProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [starring, setStarring] = useState(false);
@@ -86,7 +87,10 @@ export function FileCard({ file, onRename, onDelete, onShare, onRefresh }: FileC
   };
 
   return (
-    <div className="group relative card hover:border-gray-700 hover:bg-gray-800/50 transition-all duration-200 cursor-pointer">
+    <div
+      className="group relative card hover:border-gray-700 hover:bg-gray-800/50 transition-all duration-200 cursor-pointer"
+      onClick={onPreview}
+    >
       <div className="flex items-start justify-between gap-2">
         <div className="flex items-center gap-3 min-w-0 flex-1">
           <div className="flex-shrink-0 w-10 h-10 rounded-lg overflow-hidden border border-brand-800/50">
