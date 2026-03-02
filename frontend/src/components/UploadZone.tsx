@@ -1,11 +1,15 @@
 'use client';
 
-import { useCallback, useState } from 'react';
+import { forwardRef, useCallback, useImperativeHandle, useState } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { UploadCloud, X, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
 import { formatBytes } from '@/lib/utils';
 import api from '@/lib/api';
 import { cn } from '@/lib/utils';
+
+export interface UploadZoneHandle {
+  open: () => void;
+}
 
 interface UploadFile {
   file: File;
@@ -18,7 +22,10 @@ interface UploadZoneProps {
   onUploadComplete: () => void;
 }
 
-export function UploadZone({ folderId, onUploadComplete }: UploadZoneProps) {
+export const UploadZone = forwardRef<UploadZoneHandle, UploadZoneProps>(function UploadZone(
+  { folderId, onUploadComplete },
+  ref
+) {
   const [files, setFiles] = useState<UploadFile[]>([]);
   const [uploading, setUploading] = useState(false);
 
@@ -29,10 +36,13 @@ export function UploadZone({ folderId, onUploadComplete }: UploadZoneProps) {
     ]);
   }, []);
 
-  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+  const { getRootProps, getInputProps, isDragActive, open } = useDropzone({
     onDrop,
     maxSize: (parseInt(process.env.NEXT_PUBLIC_MAX_FILE_SIZE_MB || '50')) * 1024 * 1024,
+    noClick: false,
   });
+
+  useImperativeHandle(ref, () => ({ open }), [open]);
 
   const removeFile = (index: number) => {
     setFiles((prev) => prev.filter((_, i) => i !== index));
@@ -143,4 +153,4 @@ export function UploadZone({ folderId, onUploadComplete }: UploadZoneProps) {
       )}
     </div>
   );
-}
+});

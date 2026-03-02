@@ -1,16 +1,16 @@
 ﻿'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { FolderTree } from '@/components/FolderTree';
 import { FileCard } from '@/components/FileCard';
-import { UploadZone } from '@/components/UploadZone';
+import { UploadZone, UploadZoneHandle } from '@/components/UploadZone';
 import { Modal } from '@/components/Modal';
 import { ShareModal } from '@/components/ShareModal';
-import { Upload, Loader2, FolderPlus, RefreshCw, PanelLeftClose, PanelLeft } from 'lucide-react';
+import { Upload, Loader2, FolderPlus, RefreshCw, PanelLeftClose, PanelLeft, X, CheckCircle, AlertCircle, FileIcon } from 'lucide-react';
 import api from '@/lib/api';
 import { useAuth } from '@/lib/context/AuthContext';
-import { cn } from '@/lib/utils';
+import { cn, formatBytes } from '@/lib/utils';
 
 export default function DashboardPage() {
   const { refreshUser } = useAuth();
@@ -25,6 +25,46 @@ export default function DashboardPage() {
   const [newFolderName, setNewFolderName] = useState('');
   const [shareModal, setShareModal] = useState<{ id: string; name: string } | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
+  const uploadZoneRef = useRef<UploadZoneHandle>(null);
+
+  // Mobile upload state
+  type MobileFile = { file: File; status: 'pending' | 'uploading' | 'done' | 'error'; error?: string; preview?: string };
+  const [mobileFiles, setMobileFiles] = useState<MobileFile[]>([]);
+  const [mobileUploading, setMobileUploading] = useState(false);
+  const mobileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleMobileFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const selected = Array.from(e.target.files || []);
+    if (!selected.length) return;
+    setMobileFiles(selected.map((f) => ({
+      file: f,
+      status: 'pending' as const,
+      preview: f.type.startsWith('image/') ? URL.createObjectURL(f) : undefined,
+    })));
+    e.target.value = '';
+  };
+
+  const handleMobileUpload = async () => {
+    const hasPending = mobileFiles.some((f) => f.status === 'pending');
+    if (!hasPending) return;
+    setMobileUploading(true);
+    for (let i = 0; i < mobileFiles.length; i++) {
+      if (mobileFiles[i].status !== 'pending') continue;
+      setMobileFiles((prev) => prev.map((f, idx) => idx === i ? { ...f, status: 'uploading' } : f));
+      try {
+        const formData = new FormData();
+        formData.append('file', mobileFiles[i].file);
+        if (selectedFolder) formData.append('folder_id', selectedFolder);
+        await api.post('/files/upload', formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+        setMobileFiles((prev) => prev.map((f, idx) => idx === i ? { ...f, status: 'done' } : f));
+      } catch (err: any) {
+        const msg = err.response?.data?.message || 'Upload failed';
+        setMobileFiles((prev) => prev.map((f, idx) => idx === i ? { ...f, status: 'error', error: msg } : f));
+      }
+    }
+    setMobileUploading(false);
+    refresh();
+  };
 
   const { data: foldersData, isLoading: foldersLoading } = useQuery({
     queryKey: ['folders'],
@@ -184,7 +224,7 @@ export default function DashboardPage() {
             </button>
             <button
               onClick={() => setShowUpload(!showUpload)}
-              className="btn-primary text-sm px-3 py-2"
+              className="btn-primary text-sm px-3 py-2 hidden sm:flex"
             >
               <Upload className="w-4 h-4" />
               <span className="hidden xs:inline">Upload</span>
@@ -192,12 +232,99 @@ export default function DashboardPage() {
           </div>
         </div>
 
+        {/* Hidden file input for mobile */}
+        <input
+          ref={mobileInputRef}
+          type="file"
+          multiple
+          className="hidden"
+          onChange={handleMobileFileSelect}
+        />
+
+        {/* Mobile FAB — Upload */}
+        <button
+          onClick={() => mobileInputRef.current?.click()}
+          className="sm:hidden fixed bottom-20 right-4 z-20 w-14 h-14 rounded-full btn-primary shadow-lg shadow-brand-900/50 flex items-center justify-center"
+          title="Upload"
+        >
+          <Upload className="w-6 h-6" />
+        </button>
+
+        {/* Mobile Upload Preview Modal */}
+        {mobileFiles.length > 0 && (
+          <div className="sm:hidden fixed inset-0 z-50 flex items-end">
+            {/* backdrop */}
+            <div className="absolute inset-0 bg-black/60" onClick={() => !mobileUploading && setMobileFiles([])} />
+            <div className="relative w-full bg-gray-900 rounded-t-2xl border-t border-gray-800 p-4 space-y-3 max-h-[80vh] flex flex-col">
+              <div className="flex items-center justify-between">
+                <h3 className="font-semibold text-gray-100">Upload {mobileFiles.length} file{mobileFiles.length > 1 ? 's' : ''}</h3>
+                {!mobileUploading && (
+                  <button onClick={() => setMobileFiles([])} className="p-1 text-gray-500 hover:text-gray-300">
+                    <X className="w-5 h-5" />
+                  </button>
+                )}
+              </div>
+
+              {/* File list */}
+              <div className="overflow-y-auto space-y-2 flex-1">
+                {mobileFiles.map((item, i) => (
+                  <div key={i} className="flex items-center gap-3 bg-gray-800 rounded-xl p-2.5">
+                    {/* Thumbnail or file icon */}
+                    {item.preview ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={item.preview} alt={item.file.name} className="w-12 h-12 rounded-lg object-cover flex-shrink-0" />
+                    ) : (
+                      <div className="w-12 h-12 rounded-lg bg-gray-700 flex items-center justify-center flex-shrink-0">
+                        <FileIcon className="w-6 h-6 text-gray-400" />
+                      </div>
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-gray-200 truncate font-medium">{item.file.name}</p>
+                      <p className="text-xs text-gray-500">{formatBytes(item.file.size)}</p>
+                    </div>
+                    <div className="flex-shrink-0">
+                      {item.status === 'pending' && (
+                        <button onClick={() => setMobileFiles((prev) => prev.filter((_, idx) => idx !== i))} className="p-1 text-gray-500 hover:text-gray-300">
+                          <X className="w-4 h-4" />
+                        </button>
+                      )}
+                      {item.status === 'uploading' && <Loader2 className="w-5 h-5 text-brand-400 animate-spin" />}
+                      {item.status === 'done' && <CheckCircle className="w-5 h-5 text-green-400" />}
+                      {item.status === 'error' && (
+                        <span className="flex items-center gap-1 text-red-400 text-xs">
+                          <AlertCircle className="w-4 h-4" />
+                          {item.error}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Actions */}
+              <div className="flex gap-3 pt-1">
+                {mobileFiles.every((f) => f.status === 'done') ? (
+                  <button onClick={() => setMobileFiles([])} className="btn-primary flex-1">Done</button>
+                ) : (
+                  <>
+                    <button onClick={() => !mobileUploading && setMobileFiles([])} disabled={mobileUploading} className="btn-secondary flex-1">Cancel</button>
+                    <button onClick={handleMobileUpload} disabled={mobileUploading || !mobileFiles.some((f) => f.status === 'pending')} className="btn-primary flex-1">
+                      {mobileUploading ? <><Loader2 className="w-4 h-4 animate-spin" />Uploading…</> : 'Upload'}
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
         <div className="flex-1 overflow-y-auto p-3 sm:p-6 space-y-4 sm:space-y-6">
-          {/* Upload Zone (toggleable) */}
+          {/* Upload Zone — desktop only */}
           {showUpload && (
-            <div className="card">
+            <div className="hidden sm:block card">
               <h3 className="text-sm font-semibold text-gray-300 mb-4">Upload Files</h3>
               <UploadZone
+                ref={uploadZoneRef}
                 folderId={selectedFolder}
                 onUploadComplete={() => { refresh(); }}
               />
@@ -289,7 +416,11 @@ export default function DashboardPage() {
       <Modal
         open={!!folderModal}
         onClose={() => setFolderModal(null)}
-        title="New Folder"
+        title={
+          folderModal?.parentId
+            ? `New subfolder in "${foldersData?.find((f: { id: string }) => f.id === folderModal.parentId)?.folder_name ?? 'folder'}"`
+            : 'New Folder'
+        }
         size="sm"
       >
         <div className="space-y-4">

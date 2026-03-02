@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { FileText, Image, Video, Archive, File, Download, Pencil, Trash2, Share2, MoreVertical, Star } from 'lucide-react';
 import { formatBytes, formatDate, getMimeIcon, truncateFilename } from '@/lib/utils';
 import { cn } from '@/lib/utils';
@@ -37,6 +37,18 @@ export function FileCard({ file, onRename, onDelete, onShare, onRefresh }: FileC
   const [menuOpen, setMenuOpen] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [starring, setStarring] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+
+  const isImage = file.mime_type.startsWith('image/');
+
+  useEffect(() => {
+    if (!isImage) return;
+    let cancelled = false;
+    api.get(`/files/${file.id}/download`)
+      .then((res) => { if (!cancelled) setPreviewUrl(res.data.url); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [file.id, isImage]);
 
   const IconComp = iconMap[getMimeIcon(file.mime_type)] || File;
 
@@ -77,8 +89,20 @@ export function FileCard({ file, onRename, onDelete, onShare, onRefresh }: FileC
     <div className="group relative card hover:border-gray-700 hover:bg-gray-800/50 transition-all duration-200 cursor-pointer">
       <div className="flex items-start justify-between gap-2">
         <div className="flex items-center gap-3 min-w-0 flex-1">
-          <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-brand-900/40 border border-brand-800/50 flex items-center justify-center">
-            <IconComp className="w-5 h-5 text-brand-400" />
+          <div className="flex-shrink-0 w-10 h-10 rounded-lg overflow-hidden border border-brand-800/50">
+            {isImage && previewUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={previewUrl}
+                alt={file.file_name}
+                className="w-full h-full object-cover"
+                onError={() => setPreviewUrl(null)}
+              />
+            ) : (
+              <div className="w-full h-full bg-brand-900/40 flex items-center justify-center">
+                <IconComp className="w-5 h-5 text-brand-400" />
+              </div>
+            )}
           </div>
           <div className="min-w-0 flex-1">
             <p className="text-sm font-medium text-gray-200 truncate" title={file.file_name}>

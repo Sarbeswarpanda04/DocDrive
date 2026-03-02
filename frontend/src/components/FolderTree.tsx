@@ -36,62 +36,81 @@ function TreeNode({
   onCreateFolder, onRenameFolder, onDeleteFolder,
 }: TreeNodeProps) {
   const [expanded, setExpanded] = useState(false);
-  const [showMenu, setShowMenu] = useState(false);
   const isSelected = selectedId === folder.id;
 
   const getChildren = (parentId: string) =>
     allFolders.filter((f) => f.parent_folder_id === parentId);
 
+  const handleCreateSubfolder = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setExpanded(true); // auto-open so user sees the new child appear
+    onCreateFolder(folder.id);
+  };
+
   return (
     <div>
       <div
         className={cn(
-          'group flex items-center gap-1 px-2 py-1.5 rounded-md cursor-pointer transition-colors',
+          'group flex items-center gap-1 px-2 py-2 sm:py-1.5 rounded-md cursor-pointer transition-colors',
           isSelected ? 'bg-brand-900/50 text-brand-300' : 'hover:bg-gray-800 text-gray-300'
         )}
         style={{ paddingLeft: `${depth * 12 + 8}px` }}
       >
+        {/* Expand / collapse toggle — always visible so empty folders can still be toggled */}
         <button
           onClick={() => setExpanded(!expanded)}
           className="text-gray-500 hover:text-gray-300 transition-colors w-4 flex-shrink-0"
+          title={expanded ? 'Collapse' : 'Expand'}
         >
-          {children.length > 0 ? (
-            expanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />
-          ) : (
-            <span className="w-3" />
-          )}
+          {expanded
+            ? <ChevronDown className="w-3 h-3" />
+            : <ChevronRight className={cn('w-3 h-3', children.length === 0 && 'opacity-30')} />
+          }
         </button>
 
+        {/* Folder name */}
         <button
           onClick={() => onSelect(isSelected ? null : folder.id)}
           className="flex items-center gap-2 flex-1 min-w-0 text-left"
         >
-          {expanded ? (
-            <FolderOpen className="w-4 h-4 text-yellow-500 flex-shrink-0" />
-          ) : (
-            <Folder className="w-4 h-4 text-yellow-500 flex-shrink-0" />
-          )}
+          {expanded
+            ? <FolderOpen className="w-4 h-4 text-yellow-500 flex-shrink-0" />
+            : <Folder className="w-4 h-4 text-yellow-500 flex-shrink-0" />
+          }
           <span className="text-sm truncate">{folder.folder_name}</span>
         </button>
 
-        <div className="relative opacity-0 group-hover:opacity-100 flex items-center gap-0.5">
+        {/* Action buttons — visible on hover (desktop) or when this folder is selected (mobile tap) */}
+        <div className={cn(
+          'flex items-center gap-0.5 transition-opacity flex-shrink-0',
+          isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+        )}>
           <button
-            onClick={(e) => { e.stopPropagation(); onCreateFolder(folder.id); }}
-            className="p-1 rounded text-gray-500 hover:text-gray-300 hover:bg-gray-700"
+            onClick={handleCreateSubfolder}
+            className="p-1 rounded text-gray-500 hover:text-brand-400 hover:bg-gray-700 transition-colors"
             title="New subfolder"
           >
-            <Plus className="w-3 h-3" />
+            <Plus className="w-3.5 h-3.5" />
           </button>
           <button
-            onClick={(e) => { e.stopPropagation(); setShowMenu(!showMenu); }}
-            className="p-1 rounded text-gray-500 hover:text-gray-300 hover:bg-gray-700"
+            onClick={(e) => { e.stopPropagation(); onRenameFolder(folder.id, folder.folder_name); }}
+            className="p-1 rounded text-gray-500 hover:text-gray-300 hover:bg-gray-700 transition-colors"
+            title="Rename"
           >
-            <Pencil className="w-3 h-3" />
+            <Pencil className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={(e) => { e.stopPropagation(); onDeleteFolder(folder.id); }}
+            className="p-1 rounded text-gray-500 hover:text-red-400 hover:bg-gray-700 transition-colors"
+            title="Delete"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
           </button>
         </div>
       </div>
 
-      {expanded && children.length > 0 && (
+      {/* Children — rendered whenever expanded, even if list is empty (shows nothing, but state persists) */}
+      {expanded && (
         <div>
           {children.map((child) => (
             <TreeNode
