@@ -7,10 +7,14 @@ const logger = require('../utils/logger');
 const getAllUsers = async (req, res, next) => {
   try {
     const result = await query(
-      `SELECT id, name, role, storage_quota, storage_used,
-              failed_attempts, account_locked, account_disabled, created_at
-       FROM users
-       ORDER BY created_at DESC`
+      `SELECT u.id, u.name, u.role, u.storage_quota,
+              u.failed_attempts, u.account_locked, u.account_disabled, u.created_at,
+              COUNT(f.id) AS file_count,
+              COALESCE(SUM(f.file_size), 0) AS storage_used
+       FROM users u
+       LEFT JOIN files f ON f.user_id = u.id
+       GROUP BY u.id
+       ORDER BY u.created_at DESC`
     );
     return res.json({
       success: true,
@@ -18,6 +22,7 @@ const getAllUsers = async (req, res, next) => {
         ...u,
         storage_quota: Number(u.storage_quota),
         storage_used: Number(u.storage_used),
+        file_count: parseInt(u.file_count),
       })),
     });
   } catch (error) {
@@ -40,7 +45,7 @@ const updateUserQuota = async (req, res, next) => {
 
     const result = await query(
       `UPDATE users SET storage_quota = $1
-       WHERE id = $2 AND role = 'user'
+       WHERE id = $2
        RETURNING id, name, storage_quota, storage_used`,
       [quota_bytes, id]
     );
@@ -80,9 +85,13 @@ const toggleUserDisabled = async (req, res, next) => {
     }
 
     const current = await query(
-      `SELECT id, account_disabled FROM users WHERE id = $1 AND role = 'user'`,
+      `SELECT id, account_disabled, role FROM users WHERE id = $1`,
       [id]
     );
+
+    if (current.rows.length > 0 && current.rows[0].role === 'admin') {
+      return res.status(400).json({ success: false, message: 'Cannot disable an admin account' });
+    }
 
     if (current.rows.length === 0) {
       return res.status(404).json({ success: false, message: 'User not found' });
@@ -114,7 +123,7 @@ const unlockUser = async (req, res, next) => {
 
     const result = await query(
       `UPDATE users SET account_locked = FALSE, failed_attempts = 0
-       WHERE id = $1 AND role = 'user'
+       WHERE id = $1
        RETURNING id, name`,
       [id]
     );
@@ -138,7 +147,8 @@ const getAnalytics = async (req, res, next) => {
   try {
     const [
       totalUsersResult,
-      storageResult,
+      actualStorageResult,
+      totalQuotaResult,
       lockedResult,
       disabledResult,
       perUserResult,
@@ -146,28 +156,32 @@ const getAnalytics = async (req, res, next) => {
       totalFoldersResult,
       newUsersResult,
     ] = await Promise.all([
-      query(`SELECT COUNT(*) FROM users WHERE role = 'user'`),
-      query(`SELECT COALESCE(SUM(storage_used), 0) AS total_used,
-                    COALESCE(SUM(storage_quota), 0) AS total_quota
-             FROM users WHERE role = 'user'`),
-      query(`SELECT COUNT(*) FROM users WHERE account_locked = TRUE AND role = 'user'`),
-      query(`SELECT COUNT(*) FROM users WHERE account_disabled = TRUE AND role = 'user'`),
+      query(`SELECT COUNT(*) FROM users`),
+      // Compute real storage from actual files (not the tracked column which may be stale)
+      query(`SELECT COALESCE(SUM(file_size), 0) AS total_used FROM files`),
+      query(`SELECT COALESCE(SUM(storage_quota), 0) AS total_quota FROM users`),
+      query(`SELECT COUNT(*) FROM users WHERE account_locked = TRUE`),
+      query(`SELECT COUNT(*) FROM users WHERE account_disabled = TRUE`),
+      // Per-user storage from actual files
       query(
-        `SELECT id, name, storage_used, storage_quota
-         FROM users WHERE role = 'user'
+        `SELECT u.id, u.name, u.storage_quota,
+                COALESCE(SUM(f.file_size), 0) AS storage_used
+         FROM users u
+         LEFT JOIN files f ON f.user_id = u.id
+         GROUP BY u.id, u.name, u.storage_quota
          ORDER BY storage_used DESC LIMIT 20`
       ),
       query(`SELECT COUNT(*) FROM files`),
       query(`SELECT COUNT(*) FROM folders`),
-      query(`SELECT COUNT(*) FROM users WHERE role = 'user' AND created_at > NOW() - INTERVAL '7 days'`),
+      query(`SELECT COUNT(*) FROM users WHERE created_at > NOW() - INTERVAL '7 days'`),
     ]);
 
     return res.json({
       success: true,
       analytics: {
         total_users: parseInt(totalUsersResult.rows[0].count),
-        total_storage_used: Number(storageResult.rows[0].total_used),
-        total_storage_quota: Number(storageResult.rows[0].total_quota),
+        total_storage_used: Number(actualStorageResult.rows[0].total_used),
+        total_storage_quota: Number(totalQuotaResult.rows[0].total_quota),
         locked_accounts: parseInt(lockedResult.rows[0].count),
         disabled_accounts: parseInt(disabledResult.rows[0].count),
         total_files: parseInt(totalFilesResult.rows[0].count),
@@ -191,14 +205,19 @@ const getAnalytics = async (req, res, next) => {
 const getUserDetail = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const [userResult, fileCount, folderCount, recentFiles] = await Promise.all([
+    const [userResult, storageResult, folderCount, recentFiles] = await Promise.all([
       query(
-        `SELECT id, name, role, storage_quota, storage_used,
+        `SELECT id, name, role, storage_quota,
                 failed_attempts, account_locked, account_disabled, created_at
          FROM users WHERE id = $1`,
         [id]
       ),
-      query(`SELECT COUNT(*) FROM files WHERE user_id = $1`, [id]),
+      // Compute real storage and file count from actual files
+      query(
+        `SELECT COUNT(*) AS file_count, COALESCE(SUM(file_size), 0) AS storage_used
+         FROM files WHERE user_id = $1`,
+        [id]
+      ),
       query(`SELECT COUNT(*) FROM folders WHERE user_id = $1`, [id]),
       query(
         `SELECT id, file_name, file_size, mime_type, created_at
@@ -218,8 +237,8 @@ const getUserDetail = async (req, res, next) => {
       user: {
         ...u,
         storage_quota: Number(u.storage_quota),
-        storage_used: Number(u.storage_used),
-        file_count: parseInt(fileCount.rows[0].count),
+        storage_used: Number(storageResult.rows[0].storage_used),
+        file_count: parseInt(storageResult.rows[0].file_count),
         folder_count: parseInt(folderCount.rows[0].count),
       },
       recent_files: recentFiles.rows,
@@ -240,8 +259,13 @@ const deleteUser = async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'Cannot delete your own account' });
     }
 
+    const checkRole = await query(`SELECT role FROM users WHERE id = $1`, [id]);
+    if (checkRole.rows.length > 0 && checkRole.rows[0].role === 'admin') {
+      return res.status(400).json({ success: false, message: 'Cannot delete an admin account' });
+    }
+
     const result = await query(
-      `DELETE FROM users WHERE id = $1 AND role = 'user' RETURNING id, name`,
+      `DELETE FROM users WHERE id = $1 RETURNING id, name`,
       [id]
     );
 
@@ -264,19 +288,30 @@ const getAdminLogs = async (req, res, next) => {
   try {
     const limit = Math.min(parseInt(req.query.limit) || 50, 200);
     const offset = parseInt(req.query.offset) || 0;
+    const action = req.query.action && req.query.action !== 'all' ? req.query.action : null;
 
-    const result = await query(
-      `SELECT al.id, al.action, al.details, al.timestamp,
-              u.name AS admin_name, tu.name AS target_user_name
-       FROM admin_logs al
-       JOIN users u ON u.id = al.admin_id
-       LEFT JOIN users tu ON tu.id = al.target_user_id
-       ORDER BY al.timestamp DESC
-       LIMIT $1 OFFSET $2`,
-      [limit, offset]
-    );
+    const params = action ? [limit, offset, action] : [limit, offset];
+    const whereClause = action ? `WHERE al.action = $3` : '';
 
-    const countResult = await query('SELECT COUNT(*) FROM admin_logs');
+    const [result, countResult] = await Promise.all([
+      query(
+        `SELECT al.id, al.action, al.details, al.timestamp,
+                u.name AS admin_name, tu.name AS target_user_name
+         FROM admin_logs al
+         JOIN users u ON u.id = al.admin_id
+         LEFT JOIN users tu ON tu.id = al.target_user_id
+         ${whereClause}
+         ORDER BY al.timestamp DESC
+         LIMIT $1 OFFSET $2`,
+        params
+      ),
+      query(
+        action
+          ? `SELECT COUNT(*) FROM admin_logs WHERE action = $1`
+          : `SELECT COUNT(*) FROM admin_logs`,
+        action ? [action] : []
+      ),
+    ]);
 
     return res.json({
       success: true,

@@ -23,19 +23,24 @@ export default function AdminLogsPage() {
   const [actionFilter, setActionFilter] = useState<string>('all');
 
   const { data, isLoading } = useQuery({
-    queryKey: ['admin-logs', page],
-    queryFn: () =>
-      api.get(`/admin/logs?limit=${PAGE_SIZE}&offset=${page * PAGE_SIZE}`).then((r) => r.data),
+    queryKey: ['admin-logs', page, actionFilter],
+    queryFn: () => {
+      const params = new URLSearchParams({
+        limit: String(PAGE_SIZE),
+        offset: String(page * PAGE_SIZE),
+      });
+      if (actionFilter !== 'all') params.set('action', actionFilter);
+      return api.get(`/admin/logs?${params}`).then((r) => r.data);
+    },
     placeholderData: (prev) => prev,
+    refetchInterval: 30_000,
   });
 
   const logs: any[] = data?.logs ?? [];
   const total: number = data?.total ?? 0;
   const totalPages = Math.ceil(total / PAGE_SIZE);
 
-  const filtered = actionFilter === 'all'
-    ? logs
-    : logs.filter((l) => l.action === actionFilter);
+  const filtered = logs;
 
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 space-y-5">
@@ -53,7 +58,7 @@ export default function AdminLogsPage() {
         <div className="flex items-center gap-1.5 bg-gray-900 border border-gray-800 rounded-xl p-1 flex-shrink-0 overflow-x-auto">
           <Filter className="w-3.5 h-3.5 text-gray-500 ml-1.5 flex-shrink-0" />
           <button
-            onClick={() => setActionFilter('all')}
+            onClick={() => { setActionFilter('all'); setPage(0); }}
             className={cn(
               'px-3 py-1.5 text-xs font-medium rounded-lg transition-colors whitespace-nowrap',
               actionFilter === 'all' ? 'bg-purple-700 text-white' : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800'
@@ -64,7 +69,7 @@ export default function AdminLogsPage() {
           {ALL_ACTIONS.map((a) => (
             <button
               key={a}
-              onClick={() => setActionFilter(a)}
+              onClick={() => { setActionFilter(a); setPage(0); }}
               className={cn(
                 'px-3 py-1.5 text-xs font-medium rounded-lg transition-colors whitespace-nowrap',
                 actionFilter === a ? 'bg-purple-700 text-white' : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800'

@@ -16,11 +16,13 @@ type FilterType = 'all' | 'active' | 'locked' | 'disabled';
 interface User {
   id: string;
   name: string;
+  role: string;
   storage_quota: number;
   storage_used: number;
   account_locked: boolean;
   account_disabled: boolean;
   failed_attempts: number;
+  file_count: number;
   created_at: string;
 }
 
@@ -36,6 +38,7 @@ export default function AdminUsersPage() {
   const { data: users, isLoading } = useQuery<User[]>({
     queryKey: ['admin-users'],
     queryFn: () => api.get('/admin/users').then((r) => r.data.users),
+    refetchInterval: 30_000,
   });
 
   const filtered = (users ?? []).filter((u) => {
@@ -191,6 +194,9 @@ export default function AdminUsersPage() {
                               className="font-medium text-gray-200 hover:text-purple-300 transition-colors flex items-center gap-1 leading-tight"
                             >
                               {user.name}
+                              {user.role === 'admin' && (
+                                <span className="ml-1 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider bg-purple-800/60 text-purple-300 border border-purple-700/40 rounded-md">Admin</span>
+                              )}
                               <ChevronRight className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity" />
                             </Link>
                           </div>
@@ -218,6 +224,8 @@ export default function AdminUsersPage() {
                           <span className="badge-red">Disabled</span>
                         ) : user.account_locked ? (
                           <span className="badge-yellow">Locked</span>
+                        ) : user.role === 'admin' ? (
+                          <span className="badge">Active</span>
                         ) : (
                           <span className="badge-green">Active</span>
                         )}
@@ -229,7 +237,7 @@ export default function AdminUsersPage() {
                       {/* Actions */}
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-1">
-                          {/* Edit quota */}
+                          {/* Edit quota — always allowed */}
                           <button
                             onClick={() => {
                               setQuotaModal({ id: user.id, name: user.name, quota: user.storage_quota });
@@ -240,20 +248,22 @@ export default function AdminUsersPage() {
                           >
                             <Pencil className="w-3.5 h-3.5" />
                           </button>
-                          {/* Toggle disable */}
-                          <button
-                            onClick={() => handleToggleDisable(user.id)}
-                            className={cn('p-1.5 rounded-lg transition-colors',
-                              user.account_disabled
-                                ? 'text-green-400 hover:bg-green-900/20'
-                                : 'text-gray-500 hover:text-red-400 hover:bg-red-900/20'
-                            )}
-                            title={user.account_disabled ? 'Enable Account' : 'Disable Account'}
-                          >
-                            {user.account_disabled
-                              ? <UserCheck className="w-3.5 h-3.5" />
-                              : <UserX className="w-3.5 h-3.5" />}
-                          </button>
+                          {/* Toggle disable — blocked for admins */}
+                          {user.role !== 'admin' && (
+                            <button
+                              onClick={() => handleToggleDisable(user.id)}
+                              className={cn('p-1.5 rounded-lg transition-colors',
+                                user.account_disabled
+                                  ? 'text-green-400 hover:bg-green-900/20'
+                                  : 'text-gray-500 hover:text-red-400 hover:bg-red-900/20'
+                              )}
+                              title={user.account_disabled ? 'Enable Account' : 'Disable Account'}
+                            >
+                              {user.account_disabled
+                                ? <UserCheck className="w-3.5 h-3.5" />
+                                : <UserX className="w-3.5 h-3.5" />}
+                            </button>
+                          )}
                           {/* Unlock */}
                           {user.account_locked && (
                             <button
@@ -264,14 +274,16 @@ export default function AdminUsersPage() {
                               <Unlock className="w-3.5 h-3.5" />
                             </button>
                           )}
-                          {/* Delete */}
-                          <button
-                            onClick={() => setDeleteModal({ id: user.id, name: user.name })}
-                            className="p-1.5 rounded-lg text-gray-600 hover:text-red-400 hover:bg-red-900/20 transition-colors"
-                            title="Delete User"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
+                          {/* Delete — blocked for admins */}
+                          {user.role !== 'admin' && (
+                            <button
+                              onClick={() => setDeleteModal({ id: user.id, name: user.name })}
+                              className="p-1.5 rounded-lg text-gray-600 hover:text-red-400 hover:bg-red-900/20 transition-colors"
+                              title="Delete User"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
                           {/* View details */}
                           <Link
                             href={`/admin/users/${user.id}`}

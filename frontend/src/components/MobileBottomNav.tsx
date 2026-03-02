@@ -2,8 +2,9 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { HardDrive, Star, Clock, Settings } from 'lucide-react';
+import { HardDrive, Star, Clock, Settings, Shield } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useAuth } from '@/lib/context/AuthContext';
 
 const navItems = [
   { href: '/dashboard', label: 'Home',     icon: HardDrive },
@@ -14,6 +15,8 @@ const navItems = [
 
 export function MobileBottomNav() {
   const pathname = usePathname();
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
 
   return (
     <nav className="fixed bottom-0 inset-x-0 z-40 md:hidden bg-gray-900/95 backdrop-blur-md border-t border-gray-800 safe-bottom">
@@ -43,6 +46,27 @@ export function MobileBottomNav() {
             </Link>
           );
         })}
+
+        {/* Admin tab — only for admins */}
+        {isAdmin && (() => {
+          const active = pathname.startsWith('/admin');
+          return (
+            <Link
+              href="/admin"
+              className={cn(
+                'flex-1 flex flex-col items-center justify-center gap-0.5 transition-colors border-l border-gray-800',
+                active ? 'text-purple-400' : 'text-gray-500 hover:text-gray-300 active:text-gray-200'
+              )}
+            >
+              <div className={cn('p-1.5 rounded-xl transition-colors', active ? 'bg-purple-900/50' : '')}>
+                <Shield className={cn('w-5 h-5', active && 'drop-shadow-[0_0_6px_rgba(168,85,247,0.7)]')} />
+              </div>
+              <span className={cn('text-[10px] font-medium leading-none', active ? 'text-purple-400' : 'text-gray-500')}>
+                Admin
+              </span>
+            </Link>
+          );
+        })()}
       </div>
     </nav>
   );

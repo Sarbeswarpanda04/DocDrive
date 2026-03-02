@@ -37,6 +37,7 @@ export default function AdminUserDetailPage() {
   const { data, isLoading, error } = useQuery({
     queryKey: ['admin-user-detail', id],
     queryFn: () => api.get(`/admin/users/${id}`).then((r) => r.data),
+    refetchInterval: 30_000,
   });
 
   const user = data?.user;
@@ -129,6 +130,9 @@ export default function AdminUserDetailPage() {
         <div className="flex-1 min-w-0 space-y-1">
           <div className="flex flex-wrap items-center gap-2">
             <h1 className="text-xl font-bold text-gray-100">{user.name}</h1>
+            {user.role === 'admin' && (
+              <span className="px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-purple-800/60 text-purple-300 border border-purple-700/40 rounded-md">Admin</span>
+            )}
             {user.account_disabled && <span className="badge-red">Disabled</span>}
             {user.account_locked && <span className="badge-yellow">Locked</span>}
             {!user.account_disabled && !user.account_locked && <span className="badge-green">Active</span>}
@@ -151,22 +155,26 @@ export default function AdminUserDetailPage() {
               <Unlock className="w-3.5 h-3.5" /> Unlock
             </button>
           )}
-          <button
-            onClick={handleToggleDisable}
-            className={cn('btn-secondary text-xs px-3 py-2 gap-1.5',
-              user.account_disabled ? 'text-green-400' : 'text-red-400'
-            )}
-          >
-            {user.account_disabled
-              ? <><UserCheck className="w-3.5 h-3.5" /> Enable</>
-              : <><UserX className="w-3.5 h-3.5" /> Disable</>}
-          </button>
-          <button
-            onClick={handleDelete}
-            className="btn-secondary text-xs px-3 py-2 gap-1.5 text-red-400 hover:bg-red-900/20"
-          >
-            <Trash2 className="w-3.5 h-3.5" /> Delete
-          </button>
+          {user.role !== 'admin' && (
+            <button
+              onClick={handleToggleDisable}
+              className={cn('btn-secondary text-xs px-3 py-2 gap-1.5',
+                user.account_disabled ? 'text-green-400' : 'text-red-400'
+              )}
+            >
+              {user.account_disabled
+                ? <><UserCheck className="w-3.5 h-3.5" /> Enable</>
+                : <><UserX className="w-3.5 h-3.5" /> Disable</>}
+            </button>
+          )}
+          {user.role !== 'admin' && (
+            <button
+              onClick={handleDelete}
+              className="btn-secondary text-xs px-3 py-2 gap-1.5 text-red-400 hover:bg-red-900/20"
+            >
+              <Trash2 className="w-3.5 h-3.5" /> Delete
+            </button>
+          )}
         </div>
       </div>
 

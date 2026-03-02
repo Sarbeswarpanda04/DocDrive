@@ -4,7 +4,7 @@ import { useAuth } from '@/lib/context/AuthContext';
 import { useRouter, usePathname } from 'next/navigation';
 import { useEffect, ReactNode } from 'react';
 import { AdminSidebar } from '@/components/AdminSidebar';
-import { Loader2, Shield, LayoutDashboard, Users, ClipboardList } from 'lucide-react';
+import { Loader2, Shield, LayoutDashboard, Users, ClipboardList, HardDrive } from 'lucide-react';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
 
@@ -69,6 +69,14 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
               </Link>
             );
           })}
+          {/* My Files — always last */}
+          <Link
+            href="/dashboard"
+            className="flex-1 flex flex-col items-center gap-1 py-2.5 text-xs font-medium text-gray-500 hover:text-gray-300 transition-colors border-l border-gray-800"
+          >
+            <HardDrive className="w-5 h-5" />
+            My Files
+          </Link>
         </nav>
       </div>
     </div>
