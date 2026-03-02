@@ -1,0 +1,32 @@
+services:
+  - type: web
+    name: docdrive-backend
+    env: node
+    region: oregon
+    plan: free
+    buildCommand: npm install
+    startCommand: node src/server.js
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: ENCRYPTION_SECRET
+        sync: false
+      - key: B2_KEY_ID
+        sync: false
+      - key: B2_APPLICATION_KEY
+        sync: false
+      - key: B2_BUCKET_NAME
+        value: doc-drive-storage
+      - key: B2_REGION
+        sync: false
+      - key: B2_ENDPOINT
+        sync: false
+      - key: FRONTEND_URL
+        sync: false
+      - key: ADMIN_SETUP_KEY
+        sync: false

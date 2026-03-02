@@ -1,0 +1,252 @@
+const { query } = require('../config/database');
+const logger = require('../utils/logger');
+
+/**
+ * GET /admin/users
+ */
+const getAllUsers = async (req, res, next) => {
+  try {
+    const result = await query(
+      `SELECT id, name, role, storage_quota, storage_used,
+              failed_attempts, account_locked, account_disabled, created_at
+       FROM users
+       ORDER BY created_at DESC`
+    );
+    return res.json({
+      success: true,
+      users: result.rows.map((u) => ({
+        ...u,
+        storage_quota: Number(u.storage_quota),
+        storage_used: Number(u.storage_used),
+      })),
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * PATCH /admin/users/:id/quota
+ * Set a specific user's storage quota
+ */
+const updateUserQuota = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { quota_bytes } = req.body;
+
+    if (!quota_bytes || isNaN(quota_bytes) || Number(quota_bytes) < 0) {
+      return res.status(400).json({ success: false, message: 'Valid quota_bytes is required' });
+    }
+
+    const result = await query(
+      `UPDATE users SET storage_quota = $1
+       WHERE id = $2 AND role = 'user'
+       RETURNING id, name, storage_quota, storage_used`,
+      [quota_bytes, id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    await logAdminAction(req.user.id, 'UPDATE_QUOTA', id, {
+      new_quota: quota_bytes,
+    });
+
+    return res.json({
+      success: true,
+      user: {
+        ...result.rows[0],
+        storage_quota: Number(result.rows[0].storage_quota),
+        storage_used: Number(result.rows[0].storage_used),
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * PATCH /admin/users/:id/toggle-disable
+ * Enable or disable a user account
+ */
+const toggleUserDisabled = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    // Prevent admin from disabling themselves
+    if (id === req.user.id) {
+      return res.status(400).json({ success: false, message: 'Cannot disable your own account' });
+    }
+
+    const current = await query(
+      `SELECT id, account_disabled FROM users WHERE id = $1 AND role = 'user'`,
+      [id]
+    );
+
+    if (current.rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    const newState = !current.rows[0].account_disabled;
+
+    await query('UPDATE users SET account_disabled = $1 WHERE id = $2', [newState, id]);
+
+    await logAdminAction(req.user.id, newState ? 'DISABLE_USER' : 'ENABLE_USER', id, {});
+
+    return res.json({
+      success: true,
+      message: `User account ${newState ? 'disabled' : 'enabled'}`,
+      account_disabled: newState,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * PATCH /admin/users/:id/unlock
+ * Unlock a locked account
+ */
+const unlockUser = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    const result = await query(
+      `UPDATE users SET account_locked = FALSE, failed_attempts = 0
+       WHERE id = $1 AND role = 'user'
+       RETURNING id, name`,
+      [id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    await logAdminAction(req.user.id, 'UNLOCK_USER', id, {});
+
+    return res.json({ success: true, message: 'User account unlocked' });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * GET /admin/analytics
+ */
+const getAnalytics = async (req, res, next) => {
+  try {
+    const [
+      totalUsersResult,
+      storageResult,
+      lockedResult,
+      disabledResult,
+      perUserResult,
+    ] = await Promise.all([
+      query(`SELECT COUNT(*) FROM users WHERE role = 'user'`),
+      query(`SELECT COALESCE(SUM(storage_used), 0) AS total_used,
+                    COALESCE(SUM(storage_quota), 0) AS total_quota
+             FROM users WHERE role = 'user'`),
+      query(`SELECT COUNT(*) FROM users WHERE account_locked = TRUE AND role = 'user'`),
+      query(`SELECT COUNT(*) FROM users WHERE account_disabled = TRUE AND role = 'user'`),
+      query(
+        `SELECT id, name, storage_used, storage_quota
+         FROM users WHERE role = 'user'
+         ORDER BY storage_used DESC LIMIT 20`
+      ),
+    ]);
+
+    return res.json({
+      success: true,
+      analytics: {
+        total_users: parseInt(totalUsersResult.rows[0].count),
+        total_storage_used: Number(storageResult.rows[0].total_used),
+        total_storage_quota: Number(storageResult.rows[0].total_quota),
+        locked_accounts: parseInt(lockedResult.rows[0].count),
+        disabled_accounts: parseInt(disabledResult.rows[0].count),
+        top_users: perUserResult.rows.map((u) => ({
+          ...u,
+          storage_used: Number(u.storage_used),
+          storage_quota: Number(u.storage_quota),
+        })),
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * GET /admin/logs
+ */
+const getAdminLogs = async (req, res, next) => {
+  try {
+    const limit = Math.min(parseInt(req.query.limit) || 50, 200);
+    const offset = parseInt(req.query.offset) || 0;
+
+    const result = await query(
+      `SELECT al.id, al.action, al.details, al.timestamp,
+              u.name AS admin_name, tu.name AS target_user_name
+       FROM admin_logs al
+       JOIN users u ON u.id = al.admin_id
+       LEFT JOIN users tu ON tu.id = al.target_user_id
+       ORDER BY al.timestamp DESC
+       LIMIT $1 OFFSET $2`,
+      [limit, offset]
+    );
+
+    const countResult = await query('SELECT COUNT(*) FROM admin_logs');
+
+    return res.json({
+      success: true,
+      logs: result.rows,
+      total: parseInt(countResult.rows[0].count),
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * POST /admin/setup
+ * One-time admin account setup (requires ADMIN_SETUP_KEY)
+ */
+const setupAdmin = async (req, res, next) => {
+  try {
+    const { userId, adminSetupKey } = req.body;
+
+    if (adminSetupKey !== process.env.ADMIN_SETUP_KEY) {
+      return res.status(403).json({ success: false, message: 'Invalid admin setup key' });
+    }
+
+    await query(`UPDATE users SET role = 'admin' WHERE id = $1`, [userId]);
+
+    return res.json({ success: true, message: 'User promoted to admin' });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ─── Helper ─────────────────────────────────────────────────────────────────
+
+const logAdminAction = async (adminId, action, targetUserId, details) => {
+  try {
+    await query(
+      `INSERT INTO admin_logs (admin_id, action, target_user_id, details)
+       VALUES ($1, $2, $3, $4)`,
+      [adminId, action, targetUserId || null, JSON.stringify(details)]
+    );
+  } catch (err) {
+    logger.error('Failed to log admin action:', err);
+  }
+};
+
+module.exports = {
+  getAllUsers,
+  updateUserQuota,
+  toggleUserDisabled,
+  unlockUser,
+  getAnalytics,
+  getAdminLogs,
+  setupAdmin,
+};
