@@ -39,17 +39,20 @@ app.use(
 );
 
 // ─── CORS ────────────────────────────────────────────────────────────────────
+// FRONTEND_URL can be comma-separated for multiple Vercel domains
 const allowedOrigins = [
-  process.env.FRONTEND_URL || 'http://localhost:3000',
+  ...( (process.env.FRONTEND_URL || 'http://localhost:3000')
+        .split(',').map((o) => o.trim()) ),
   'http://localhost:3000',
   'http://localhost:3001',
-  'http://192.168.29.13:3000',
-  'http://192.168.29.13:3001',
 ];
 app.use(
   cors({
     origin: (origin, callback) => {
-      if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
+      if (!origin) return callback(null, true); // allow server-to-server / same-origin
+      if (allowedOrigins.includes(origin)) return callback(null, true);
+      // Allow all Vercel preview deployments for this project
+      if (origin.match(/https:\/\/docdrive[a-z0-9-]*\.vercel\.app$/)) return callback(null, true);
       callback(new Error('Not allowed by CORS'));
     },
     credentials: true, // Required for cookies
